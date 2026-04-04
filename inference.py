@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Baseline Inference Script for Med-Triage OpenEnv Hackathon
-Demonstrates agent evaluation across 3 difficulty levels with structured logging
+Demonstrates agent evaluation across 3 task levels with structured logging
 """
 
 import os
@@ -11,24 +11,23 @@ import time
 from datetime import datetime
 from typing import Dict, Any
 
-# Environment variables (set these before running)
+# Environment variables
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "groq-mixtral-8x7b")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 # Import environment and agent
-from environment.med_triage_env import SupportTriageEnv
-from baseline.agent import TicketTriageAgent
+from environment.med_triage_env import MedTriageEnv, TriageAction, TriageActionType
+from baseline.agent import BaselineAgent
 
 
-def log_start(task_name: str, difficulty: str):
+def log_start(task_name: str, task_level: str):
     """Emit [START] log"""
     timestamp = datetime.now().isoformat()
     log = {
         "event": "START",
         "timestamp": timestamp,
         "task": task_name,
-        "difficulty": difficulty,
+        "task_level": task_level,
         "model": MODEL_NAME,
         "api_base": API_BASE_URL
     }
@@ -36,19 +35,14 @@ def log_start(task_name: str, difficulty: str):
     sys.stdout.flush()
 
 
-def log_step(step_num: int, action: Dict[str, Any], reward: float, done: bool):
+def log_step(step_num: int, action_type: str, reward: float, done: bool):
     """Emit [STEP] log"""
     timestamp = datetime.now().isoformat()
     log = {
         "event": "STEP",
         "timestamp": timestamp,
         "step": step_num,
-        "action": {
-            "ticket_id": action.get("ticket_id"),
-            "priority": action.get("priority"),
-            "category": action.get("category"),
-            "agent": action.get("agent_id")
-        },
+        "action_type": action_type,
         "reward": round(float(reward), 4),
         "done": done
     }
@@ -56,7 +50,7 @@ def log_step(step_num: int, action: Dict[str, Any], reward: float, done: bool):
     sys.stdout.flush()
 
 
-def log_end(task_name: str, difficulty: str, total_reward: float, episodes: int, 
+def log_end(task_name: str, task_level: str, total_reward: float, episodes: int, 
             avg_reward: float, success_rate: float, status: str):
     """Emit [END] log"""
     timestamp = datetime.now().isoformat()
@@ -64,7 +58,7 @@ def log_end(task_name: str, difficulty: str, total_reward: float, episodes: int,
         "event": "END",
         "timestamp": timestamp,
         "task": task_name,
-        "difficulty": difficulty,
+        "task_level": task_level,
         "total_reward": round(float(total_reward), 4),
         "episodes_run": episodes,
         "average_reward": round(float(avg_reward), 4),
@@ -76,45 +70,39 @@ def log_end(task_name: str, difficulty: str, total_reward: float, episodes: int,
     sys.stdout.flush()
 
 
-def run_episode(env: SupportTriageEnv, agent: TicketTriageAgent, difficulty: str, max_steps: int = 20):
+def run_episode(env: MedTriageEnv, agent: BaselineAgent, max_steps: int = 20) -> Dict:
     """Run a single episode and return metrics"""
-    obs, info = env.reset(difficulty=difficulty)
+    obs = env.reset()
     
-    total_reward = 0
+    total_reward = 0.0
     step_count = 0
     actions_taken = []
     
     for step in range(max_steps):
         # Get action from agent
         try:
-            action = agent.get_triage_decision(
-                ticket_dict=obs.current_ticket.__dict__ if obs.current_ticket else {},
-                agent_workload=obs.agent_workloads or {}
-            )
+            action = agent.decide(obs)
             
-            # Convert Pydantic model to dict if needed
-            if hasattr(action, '__dict__'):
-                action_dict = action.__dict__
-            else:
-                action_dict = action
-                
+            if action is None:
+                break
+            
             # Step environment
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, info = env.step(action)
             
-            # Accumulate reward
-            if hasattr(reward, 'total_reward'):
-                step_reward = reward.total_reward
+            # Extract reward value
+            if isinstance(reward, dict):
+                step_reward = reward.get("total_reward", 0.0)
             else:
-                step_reward = float(reward)
+                step_reward = float(reward) if reward else 0.0
             
             total_reward += step_reward
             step_count += 1
-            actions_taken.append(action_dict)
+            actions_taken.append(str(action.type))
             
             # Log step
-            log_step(step + 1, action_dict, step_reward, done or truncated)
+            log_step(step + 1, str(action.type), step_reward, done)
             
-            if done or truncated:
+            if done:
                 break
                 
         except Exception as e:
@@ -123,7 +111,7 @@ def run_episode(env: SupportTriageEnv, agent: TicketTriageAgent, difficulty: str
                 "timestamp": datetime.now().isoformat(),
                 "step": step + 1,
                 "error": str(e)
-            }))
+            }), file=sys.stderr)
             break
     
     return {
@@ -142,50 +130,58 @@ def main():
     print("=" * 80)
     print()
     
-    # Initialize environment
-    try:
-        env = SupportTriageEnv()
-    except Exception as e:
-        print(json.dumps({
-            "event": "ERROR",
-            "message": f"Failed to initialize environment: {e}"
-        }))
-        sys.exit(1)
+    # Map task levels to names
+    task_levels = {
+        1: "easy",
+        2: "medium", 
+        3: "hard"
+    }
     
-    # Initialize agent
-    try:
-        config = {
-            "groq_key": os.getenv("GROQ"),
-            "gemini_key": os.getenv("GEMINI"),
-        }
-        agent = TicketTriageAgent(config)
-    except Exception as e:
-        print(json.dumps({
-            "event": "ERROR",
-            "message": f"Failed to initialize agent: {e}"
-        }))
-        sys.exit(1)
-    
-    # Run evaluation on all 3 difficulty levels
+    # Run evaluation on all 3 task levels
     results = {}
     overall_scores = []
     
-    for difficulty in ["easy", "medium", "hard"]:
+    for task_level in [1, 2, 3]:
+        task_name = task_levels[task_level]
         print(f"\n{'='*80}")
-        print(f"📊 Evaluating: {difficulty.upper()} Difficulty")
+        print(f"📊 Evaluating: {task_name.upper()} (Task Level {task_level})")
         print(f"{'='*80}\n")
         
-        log_start("Med-Triage", difficulty)
+        log_start("Med-Triage", task_name)
         
-        # Run multiple episodes for this difficulty
-        num_episodes = 3 if difficulty == "easy" else 2 if difficulty == "medium" else 1
+        # Initialize environment for this task level
+        try:
+            env = MedTriageEnv(task_level=task_level, max_steps=50)
+        except Exception as e:
+            print(json.dumps({
+                "event": "ERROR",
+                "message": f"Failed to initialize environment: {e}"
+            }))
+            continue
+        
+        # Initialize agent
+        try:
+            config = {
+                "groq_key": os.getenv("GROQ"),
+                "gemini_key": os.getenv("GEMINI"),
+            }
+            agent = BaselineAgent(config)
+        except Exception as e:
+            print(json.dumps({
+                "event": "ERROR",
+                "message": f"Failed to initialize agent: {e}"
+            }))
+            continue
+        
+        # Run multiple episodes for this task level
+        num_episodes = 3 if task_level == 1 else 2 if task_level == 2 else 1
         episodes_data = []
         
         for episode in range(num_episodes):
             print(f"Episode {episode + 1}/{num_episodes}...", end=" ", flush=True)
             
             try:
-                episode_result = run_episode(env, agent, difficulty)
+                episode_result = run_episode(env, agent, max_steps=20)
                 episodes_data.append(episode_result)
                 print(f"✓ Reward: {episode_result['total_reward']:.4f}")
                 
@@ -193,16 +189,16 @@ def main():
                 print(f"✗ Error: {e}")
                 continue
         
-        # Calculate metrics for this difficulty
+        # Calculate metrics for this task level
         if episodes_data:
             total_reward = sum(ep["total_reward"] for ep in episodes_data)
             avg_reward = total_reward / len(episodes_data)
             
-            # Estimate success rate (reward > 0.5 = success)
-            success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 0.5)
+            # Estimate success rate (reward > 5.0 = success)
+            success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 5.0)
             success_rate = success_count / len(episodes_data)
             
-            results[difficulty] = {
+            results[task_name] = {
                 "episodes": len(episodes_data),
                 "total_reward": total_reward,
                 "average_reward": avg_reward,
@@ -214,7 +210,7 @@ def main():
             
             log_end(
                 task_name="Med-Triage",
-                difficulty=difficulty,
+                task_level=task_name,
                 total_reward=total_reward,
                 episodes=len(episodes_data),
                 avg_reward=avg_reward,
@@ -224,7 +220,7 @@ def main():
         else:
             log_end(
                 task_name="Med-Triage",
-                difficulty=difficulty,
+                task_level=task_name,
                 total_reward=0,
                 episodes=0,
                 avg_reward=0,
@@ -237,8 +233,8 @@ def main():
     print("📈 SUMMARY RESULTS")
     print(f"{'='*80}\n")
     
-    for difficulty, data in results.items():
-        print(f"{difficulty.upper():10} | Episodes: {data['episodes']:2} | "
+    for task_name, data in results.items():
+        print(f"{task_name.upper():10} | Episodes: {data['episodes']:2} | "
               f"Avg Reward: {data['average_reward']:.4f} | "
               f"Success Rate: {data['success_rate']:.1%}")
     

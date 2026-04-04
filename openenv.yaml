@@ -1,147 +1,136 @@
-name: support-ticket-triage
+---
+name: Support Ticket Triage OpenEnv
 version: 1.0.0
-description: Real-world customer support ticket triaging environment for AI agent evaluation
-author: Support Triage Team
+description: |
+  OpenEnv environment for evaluating AI agents on continuous, time-sensitive 
+  clinical decision-making in emergency medicine support ticket triage.
+
+author: Med-Triage Team
 license: MIT
 
-# Environment metadata
-env_type: real_world_task
-domain: customer_support
-difficulty_range: [easy, medium, hard]
-
-# API specifications
-api_version: 1.0
+# Environment Endpoints
 endpoints:
-  - reset
-  - step
-  - state
-  - render
+  - reset: "Initialize environment for a task"
+  - step: "Execute an action and get reward"
+  - state: "Get current environment state"
+  - render: "Render human-readable view (optional)"
 
-# Action space
-action_space:
-  type: object
-  properties:
-    ticket_id:
-      type: string
-      description: ID of ticket to triage
-    priority:
-      type: string
-      enum: [low, medium, high, critical]
-      description: Assigned priority level
-    category:
-      type: string
-      enum: [billing, technical, account, feature_request, bug_report]
-      description: Ticket category
-    assign_to_agent:
-      type: string
-      description: Agent ID to assign ticket to
-    notes:
-      type: string
-      description: Optional triage notes
-
-# Observation space
-observation_space:
-  type: object
-  properties:
-    current_step:
-      type: integer
-      description: Current step number
-    queue_size:
-      type: integer
-      description: Number of tickets in queue
-    tickets:
-      type: array
-      items:
+# Environment Configuration
+environment:
+  class_name: SupportTriageEnv
+  module: environment.med_triage_env
+  
+  observation_space:
+    type: object
+    properties:
+      current_ticket:
         type: object
-        properties:
-          ticket_id:
-            type: string
-          subject:
-            type: string
-          priority:
-            type: string
-          category:
-            type: string
-          sentiment_score:
-            type: number
-      description: Current ticket queue (top N)
-    agent_workload:
-      type: object
-      description: Current workload per agent
-    metrics:
-      type: object
-      properties:
-        priority_accuracy:
-          type: number
-        category_accuracy:
-          type: number
-        load_balance_std:
-          type: number
+        description: Current ticket in queue
+      queue_length: 
+        type: integer
+        description: Number of tickets waiting
+      agent_workloads:
+        type: object
+        description: Current workload per agent
+      metrics:
+        type: object
+        description: Performance metrics
+        
+  action_space:
+    type: object
+    properties:
+      ticket_id:
+        type: string
+      priority:
+        type: string
+        enum: ["low", "medium", "high"]
+      category:
+        type: string
+        enum: ["billing", "technical", "general"]
+      agent_id:
+        type: string
+        
+  reward_spec:
+    type: object
+    components:
+      - priority_match: "Reward for correct priority assignment"
+      - category_match: "Reward for correct category assignment"
+      - agent_assignment: "Reward for optimal agent selection"
+      - queue_efficiency: "Reward for queue management"
 
-# Reward specification
-reward:
-  description: Composite reward from classification accuracy, load balancing, and sentiment handling
-  range: [-2.0, 2.0]
-  components:
-    - priority_classification
-    - category_classification
-    - load_balancing
-    - sentiment_handling
-
-# Tasks
+# Tasks Configuration
 tasks:
-  - id: task_1
-    name: "Easy - Basic Ticket Triage"
-    description: "Triage 5 tickets with mostly LOW/MEDIUM priority. Focus on accuracy."
+  - name: easy_triage
     difficulty: easy
-    parameters:
-      task_level: 1
-      max_steps: 50
-      expected_tickets: 5
-    success_criteria:
-      priority_accuracy_min: 0.90
-      category_accuracy_min: 0.85
-    expected_score_range: [0.6, 1.0]
-  
-  - id: task_2
-    name: "Medium - Balanced Triage"
-    description: "Triage 10 tickets with mixed priorities. Balance load across agents."
+    description: Triage 5 tickets with clear patterns
+    max_episodes: 100
+    metrics:
+      min_reward: 0.7
+      target_reward: 0.85
+      
+  - name: medium_triage
     difficulty: medium
-    parameters:
-      task_level: 2
-      max_steps: 100
-      expected_tickets: 10
-    success_criteria:
-      priority_accuracy_min: 0.80
-      category_accuracy_min: 0.75
-      load_balance_std_max: 1.0
-    expected_score_range: [0.5, 0.95]
-  
-  - id: task_3
-    name: "Hard - Complex High-Volume Triage"
-    description: "Triage 15 tickets with CRITICAL priorities and complex sentiment. Optimize for all metrics."
+    description: Triage 10 tickets with mixed patterns
+    max_episodes: 50
+    metrics:
+      min_reward: 0.5
+      target_reward: 0.75
+      
+  - name: hard_triage
     difficulty: hard
-    parameters:
-      task_level: 3
-      max_steps: 150
-      expected_tickets: 15
-    success_criteria:
-      priority_accuracy_min: 0.70
-      category_accuracy_min: 0.65
-      load_balance_std_max: 0.5
-    expected_score_range: [0.3, 0.85]
+    description: Triage 20 tickets with complex patterns
+    max_episodes: 20
+    metrics:
+      min_reward: 0.3
+      target_reward: 0.65
 
-# Testing requirements
-testing:
-  validation_steps: 100
-  grader_reproducible: true
-  grader_deterministic: true
-  baseline_required: true
+# Baseline Agent
+baseline:
+  class_name: TicketTriageAgent
+  module: baseline.agent
+  config:
+    model: mixtral-8x7b-32768
+    temperature: 0.7
+    max_tokens: 500
 
-# Deployment
-deployment:
-  docker_required: true
-  hf_spaces_compatible: true
-  inference_timeout_seconds: 1200
-  vcpu_minimum: 2
-  memory_gb_minimum: 8
+# Evaluation Metrics
+evaluation:
+  metrics:
+    - episode_return: "Cumulative reward per episode"
+    - success_rate: "Percentage of correctly triaged tickets"
+    - average_priority_accuracy: "Accuracy of priority prediction"
+    - average_category_accuracy: "Accuracy of category prediction"
+    - average_agent_match: "Accuracy of agent assignment"
+    
+# API Configuration
+apis:
+  primary:
+    name: GROQ
+    model: mixtral-8x7b-32768
+    endpoint: https://api.groq.com/openai/v1/chat/completions
+    free_tier: true
+    rate_limit: "30 requests/minute"
+    
+  fallback:
+    name: GEMINI
+    model: gemini-pro
+    endpoint: https://generativelanguage.googleapis.com/v1beta/models
+    free_tier: true
+    rate_limit: "60 requests/minute"
+
+# Web UI Configuration
+web_ui:
+  port: 7860
+  framework: Flask
+  features:
+    - interactive_testing
+    - real_time_status
+    - episode_visualization
+    - metrics_dashboard
+
+# Documentation
+docs:
+  github: https://github.com/nachikethshetty-art/med-trainge-openenv
+  readme: README.md
+  api_setup: API_KEYS_SETUP.md
+  deployment: HF_SPACES_DEPLOYMENT.md
