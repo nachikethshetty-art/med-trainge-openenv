@@ -8,8 +8,8 @@ import os
 import json
 import traceback
 from flask import Flask, render_template_string, jsonify, request
-from environment.med_triage_env import SupportTriageEnv
-from baseline.agent import TicketTriageAgent
+from environment.med_triage_env import MedTriageEnv
+from baseline.agent import BaselineAgent
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -24,7 +24,7 @@ def init_app():
     """Initialize environment and agent."""
     global env, agent
     try:
-        env = SupportTriageEnv()
+        env = MedTriageEnv()
         
         # Get API keys from environment
         # HF Spaces doesn't allow underscores in secret names, so we accept both formats
@@ -32,7 +32,7 @@ def init_app():
             "groq_key": os.getenv("GROQ") or os.getenv("GROQ_API_KEY"),
             "gemini_key": os.getenv("GEMINI") or os.getenv("GEMINI_API_KEY"),
         }
-        agent = TicketTriageAgent(config)
+        agent = BaselineAgent()
         print("✓ Environment and agent initialized successfully")
         return True
     except Exception as e:
