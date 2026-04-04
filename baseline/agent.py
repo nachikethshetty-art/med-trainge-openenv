@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from environment import TriageAction, TriageActionType
+from environment.med_triage_env import TriageAction, TriageActionType
 import random
 
 
