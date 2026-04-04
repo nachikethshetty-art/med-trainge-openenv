@@ -18,8 +18,12 @@ try:
     config = parse_env_vars()
     agent = TicketTriageAgent(config)
     print("✅ Agent initialized successfully", file=sys.stderr)
+except ValueError as e:
+    print(f"⚠️  Agent initialization warning: {e}", file=sys.stderr)
+    print("⚠️  API keys not yet configured. Please add secrets to HF Space.", file=sys.stderr)
+    agent = None
 except Exception as e:
-    print(f"⚠️  Agent init warning: {e}", file=sys.stderr)
+    print(f"⚠️  Agent init error: {e}", file=sys.stderr)
     agent = None
 
 

@@ -37,6 +37,8 @@ EXPOSE 7860
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
+ENV GROQ_API_KEY=""
+ENV GEMINI_API_KEY=""
 
 # Start the Flask app server
 CMD ["python", "app_server.py"]
