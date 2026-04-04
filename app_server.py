@@ -486,14 +486,18 @@ def health():
 @app.route('/status')
 def status():
     """Return status of APIs and models."""
-    groq_available = False
-    gemini_available = False
-    model_used = None
+    # Check if API keys are set in environment
+    groq_key = os.getenv("GROQ") or os.getenv("GROQ_API_KEY")
+    gemini_key = os.getenv("GEMINI") or os.getenv("GEMINI_API_KEY")
     
-    if agent:
-        groq_available = hasattr(agent, 'groq_client') and agent.groq_client is not None
-        gemini_available = hasattr(agent, 'gemini_model') and agent.gemini_model is not None
-        model_used = getattr(agent, 'model_used', None)
+    groq_available = groq_key is not None and len(groq_key) > 0
+    gemini_available = gemini_key is not None and len(gemini_key) > 0
+    
+    model_used = "BaselineAgent (Heuristic-based)"
+    if groq_available:
+        model_used = "GROQ (Mixtral-8x7b)"
+    elif gemini_available:
+        model_used = "GEMINI (Pro)"
     
     return jsonify({
         "environment_ready": env is not None,
@@ -506,7 +510,7 @@ def status():
 @app.route('/run_episode', methods=['POST'])
 def run_episode():
     """Run a complete episode and return results."""
-    global env, agent, last_episode_result
+    global last_episode_result
     
     if not env or not agent:
         return jsonify({
@@ -522,6 +526,7 @@ def run_episode():
         task_level = difficulty_map.get(difficulty, 2)
         
         # Create environment with task level
+        global env
         env = MedTriageEnv(task_level=task_level)
         
         # Reset environment
