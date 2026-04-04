@@ -3,6 +3,9 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Create non-root user (required by HF Spaces)
+RUN useradd -m -u 1000 user
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
@@ -19,15 +22,24 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY env.py .
 COPY inference.py .
 COPY openenv.yaml .
+COPY app_server.py .
 COPY README.md .
 
-# Expose API port
-EXPOSE 8000
+# Set permissions
+RUN chown -R user:user /app
+
+# Switch to non-root user
+USER user
+
+# HF Spaces requires app to listen on port 7860
+EXPOSE 7860
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV API_BASE_URL="https://api.openai.com/v1"
-ENV MODEL_NAME="gpt-4"
+ENV PORT=7860
+
+# Start the Flask app server
+CMD ["python", "app_server.py"]
 
 # Default command
 CMD ["/bin/bash"]
