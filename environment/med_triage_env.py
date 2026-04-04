@@ -1,444 +1,394 @@
 #!/usr/bin/env python3
 """
-Support Ticket Triage OpenEnv
-Real-world customer support ticket triaging environment
+Med-Triage OpenEnv - Clinical Triage Environment
+Temporal reasoning + resource-constrained decision making
 """
 
-import json
-import random
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
 import numpy as np
+from typing import Dict, List, Tuple, Optional
+from enum import Enum
+from pydantic import BaseModel
+from datetime import datetime
+import random
 
 
-# ============================================================================
-# OpenEnv Models - Full Compliance
-# ============================================================================
-
-class TicketPriority(str, Enum):
-    """Ticket priority levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+# Simple gym-like base class for compatibility
+class Env:
+    """Minimal gym.Env replacement"""
+    def render(self, mode='human'):
+        pass
 
 
-class TicketCategory(str, Enum):
-    """Ticket categories"""
-    BILLING = "billing"
-    TECHNICAL = "technical"
-    ACCOUNT = "account"
-    FEATURE_REQUEST = "feature_request"
-    BUG_REPORT = "bug_report"
-
-
-class TicketStatus(str, Enum):
-    """Ticket lifecycle status"""
-    OPEN = "open"
-    ASSIGNED = "assigned"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-    CLOSED = "closed"
-
-
-class Ticket(BaseModel):
-    """Individual support ticket"""
-    ticket_id: str
-    subject: str
-    description: str
-    customer_id: str
-    created_at: str
-    priority: TicketPriority
-    category: TicketCategory
-    status: TicketStatus
-    assigned_to: Optional[str] = None
-    sentiment_score: float = Field(ge=-1.0, le=1.0)  # -1 to 1
-    wait_time_minutes: int = 0
-    resolution_time_minutes: Optional[int] = None
-    customer_satisfaction: Optional[float] = Field(None, ge=0.0, le=5.0)
-
-
-class Observation(BaseModel):
-    """Environment observation"""
-    current_step: int
-    queue_size: int
-    tickets: List[Ticket]
-    agent_workload: Dict[str, int]  # agent_id -> ticket_count
-    time_remaining_seconds: int
-    metrics: Dict[str, float] = {
-        "avg_resolution_time": 0.0,
-        "customer_satisfaction_avg": 0.0,
-        "tickets_resolved_today": 0,
-        "queue_wait_time_avg": 0.0
-    }
+class TriageActionType(str, Enum):
+    """Valid triage actions"""
+    ASSIGN_ESI = "assign_esi"
+    ORDER_TEST = "order_test"
+    MONITOR = "monitor"
+    QUERY = "query"
+    DISCHARGE = "discharge"
 
 
 class TriageAction(BaseModel):
-    """Action to triage a ticket"""
-    ticket_id: str
-    priority: TicketPriority
-    category: TicketCategory
-    assign_to_agent: Optional[str] = None  # agent_id or None for auto-queue
-    notes: Optional[str] = None
+    """Structured action for triage decisions"""
+    type: TriageActionType
+    patient_id: str
+    value: Optional[int] = None  # ESI level (1-5)
+    tool: Optional[str] = None    # Test type
+    minutes: Optional[int] = None # Monitor duration
+    text: Optional[str] = None    # Query text
 
 
-class Reward(BaseModel):
-    """Reward structure"""
-    value: float = Field(ge=-10.0, le=10.0)
-    components: Dict[str, float] = {}  # Breakdown for transparency
+class PatientState(str, Enum):
+    """Patient health states"""
+    STABLE = "A"              # Stable condition
+    DECOMPENSATING = "B"      # Getting worse (hidden)
+    CRITICAL = "C"            # Critical state
+    DISCHARGED = "D"          # Discharged
 
 
-class Info(BaseModel):
-    """Episode info"""
-    step: int
-    done: bool
-    episode_length: int
-    total_reward: float
-    success: bool
-    metrics: Dict[str, Any] = {}
+class Patient:
+    """Represents a patient in the ER"""
+    
+    def __init__(self, patient_id: str, symptoms: List[str], condition: str):
+        self.id = patient_id
+        self.symptoms = symptoms
+        self.true_condition = condition  # Hidden from agent
+        self.state = PatientState.STABLE
+        self.state_timer = 0  # Time until next state change
+        self.deterioration_rate = 0.0  # How quickly patient deteriorates
+        self.deterioration_threshold = None  # When to trigger deterioration
+        self.vitals = {
+            "bp": np.random.randint(110, 150),  # Systolic BP
+            "hr": np.random.randint(60, 100),    # Heart rate
+            "temp": np.random.uniform(37.0, 38.5),  # Temperature
+            "o2": np.random.randint(95, 100)     # O2 saturation
+        }
+        self.triage_level = None  # ESI level (1-5)
+        self.tests_ordered = []
+        self.status = "waiting"
+        self.expired = False
+        self.deterioration_detected_at = None  # Track when deterioration was detected
+    
+    def update_vitals(self, deteriorate: bool = False):
+        """Update vitals based on patient state"""
+        if deteriorate:
+            self.vitals["bp"] -= np.random.randint(2, 5)
+            self.vitals["hr"] += np.random.randint(3, 8)
+            self.vitals["temp"] += np.random.uniform(0.1, 0.5)
+            self.vitals["o2"] -= np.random.randint(1, 3)
+        else:
+            # Small random fluctuations
+            self.vitals["bp"] += np.random.randint(-2, 3)
+            self.vitals["hr"] += np.random.randint(-2, 3)
+            self.vitals["o2"] = min(100, self.vitals["o2"] + np.random.randint(-1, 2))
+    
+    def check_critical(self):
+        """Check if patient has reached critical state"""
+        if self.vitals["o2"] < 88 or self.vitals["hr"] > 120 or self.vitals["bp"] < 80:
+            self.state = PatientState.CRITICAL
+            return True
+        return False
+    
+    def get_observation(self) -> Dict:
+        """Get observable patient data (hidden state excluded)"""
+        return {
+            "id": self.id,
+            "symptoms": self.symptoms,
+            "vitals": self.vitals.copy(),
+            "status": self.status,
+            "triage_level": self.triage_level,
+            "tests_ordered": self.tests_ordered.copy()
+        }
 
 
-# ============================================================================
-# Core Environment
-# ============================================================================
-
-class SupportTriageEnv:
+class MedTriageEnv(Env):
     """
-    Customer Support Ticket Triage Environment
-    Simulates real-world ticket triaging with multiple agents and performance metrics
+    Med-Triage OpenEnv Environment
+    Evaluates AI agents on temporal clinical reasoning
     """
     
-    def __init__(self, task_level: int = 1, max_steps: int = 100, seed: int = None):
+    def __init__(self, task_level: int = 1, max_steps: int = 50, seed: int = None):
         """
         Initialize environment
         
         Args:
-            task_level: 1 (easy), 2 (medium), 3 (hard)
-            max_steps: Episode length
-            seed: Random seed
+            task_level: 1 (clear-cut), 2 (resource war), 3 (sepsis bomb)
+            max_steps: Maximum steps per episode
+            seed: Random seed for reproducibility
         """
         self.task_level = task_level
         self.max_steps = max_steps
         self.seed_value = seed
         
         if seed is not None:
-            random.seed(seed)
             np.random.seed(seed)
+            random.seed(seed)
         
-        # State tracking
+        # Environment state
+        self.patients = []
         self.current_step = 0
+        self.resource_units = self._get_resource_units()
+        self.episode_reward = 0.0
         self.done = False
-        self.tickets_queue: List[Ticket] = []
-        self.agents = {"agent_1": 0, "agent_2": 0, "agent_3": 0}
-        self.resolved_tickets: List[Ticket] = []
-        self.episode_start_time = datetime.now()
-        self.total_reward = 0.0
         
-        # Metrics
-        self.correctly_prioritized = 0
-        self.correctly_categorized = 0
-        self.total_triaged = 0
+        # Episode history
+        self.action_history = []
+        self.reward_history = []
+    
+    def _get_resource_units(self) -> int:
+        """Get available resource units based on task level"""
+        if self.task_level == 1:
+            return 20  # Plenty of resources
+        elif self.task_level == 2:
+            return 5   # Limited resources
+        else:
+            return 8   # Moderate resources
+    
+    def _generate_patients(self):
+        """Generate patient cohort based on task level"""
+        self.patients = []
         
-    def reset(self) -> Observation:
+        if self.task_level == 1:
+            # Clear-cut cases
+            self.patients.append(Patient("P1", ["fever", "cough"], "pneumonia"))
+            self.patients.append(Patient("P2", ["laceration"], "wound"))
+            self.patients.append(Patient("P3", ["headache"], "migraine"))
+        
+        elif self.task_level == 2:
+            # Resource war - mixed severity
+            self.patients.append(Patient("P1", ["chest pain"], "stable_angina"))
+            self.patients.append(Patient("P2", ["abdominal pain"], "appendicitis"))
+            self.patients.append(Patient("P3", ["dizziness"], "dehydration"))
+        
+        else:  # task_level == 3
+            # Sepsis time bomb - critical hidden condition with temporal dynamics
+            sepsis_patient = Patient("P1", ["mild fever", "fatigue"], "sepsis")
+            sepsis_patient.deterioration_threshold = 15  # Deteriorate after 15 steps
+            sepsis_patient.deterioration_rate = 0.8  # Aggressive deterioration
+            self.patients.append(sepsis_patient)
+            
+            self.patients.append(Patient("P2", ["nausea"], "gastroenteritis"))
+            self.patients.append(Patient("P3", ["cough"], "cold"))
+    
+    def reset(self) -> Dict:
         """Reset environment and return initial observation"""
         self.current_step = 0
+        self.episode_reward = 0.0
         self.done = False
-        self.tickets_queue = []
-        self.agents = {"agent_1": 0, "agent_2": 0, "agent_3": 0}
-        self.resolved_tickets = []
-        self.episode_start_time = datetime.now()
-        self.total_reward = 0.0
-        self.correctly_prioritized = 0
-        self.correctly_categorized = 0
-        self.total_triaged = 0
+        self.action_history = []
+        self.reward_history = []
+        self.resource_units = self._get_resource_units()
         
-        # Generate initial tickets
-        self._generate_initial_tickets()
+        self._generate_patients()
         
         return self._get_observation()
     
-    def state(self) -> Dict:
-        """Get current state (OpenEnv spec)"""
+    def _get_observation(self) -> Dict:
+        """Get current observation"""
         return {
+            "patients": [p.get_observation() for p in self.patients],
+            "resource_units_remaining": self.resource_units,
+            "time_elapsed": self.current_step,
             "step": self.current_step,
-            "done": self.done,
-            "queue_size": len(self.tickets_queue),
-            "agents": self.agents.copy(),
-            "resolved_tickets_count": len(self.resolved_tickets),
-            "total_reward": self.total_reward
+            "max_steps": self.max_steps
         }
     
-    def _generate_initial_tickets(self):
-        """Generate initial queue of tickets based on task level"""
-        base_count = {1: 5, 2: 10, 3: 15}.get(self.task_level, 5)
-        
-        categories = list(TicketCategory)
-        base_priorities = {
-            1: [TicketPriority.LOW, TicketPriority.MEDIUM],  # Easy
-            2: [TicketPriority.LOW, TicketPriority.MEDIUM, TicketPriority.HIGH],  # Medium
-            3: list(TicketPriority)  # Hard - all priorities
-        }
-        
-        priorities = base_priorities.get(self.task_level, [TicketPriority.LOW, TicketPriority.MEDIUM])
-        
-        for i in range(base_count):
-            ticket = Ticket(
-                ticket_id=f"T{self.current_step:05d}_{i:03d}",
-                subject=self._generate_subject(),
-                description=self._generate_description(),
-                customer_id=f"C{random.randint(1000, 9999)}",
-                created_at=datetime.now().isoformat(),
-                priority=random.choice(priorities),
-                category=random.choice(categories),
-                status=TicketStatus.OPEN,
-                sentiment_score=random.uniform(-1.0, 1.0)
-            )
-            self.tickets_queue.append(ticket)
-    
-    def _generate_subject(self) -> str:
-        """Generate realistic ticket subject"""
-        subjects = [
-            "Payment failed on my account",
-            "App crashes on login",
-            "Cannot reset password",
-            "Billing inquiry about recurring charges",
-            "Feature request: dark mode",
-            "Bug: search not working",
-            "Account locked after failed attempts",
-            "Upgrade subscription issue",
-            "Performance problems on iOS",
-            "Export data request"
-        ]
-        return random.choice(subjects)
-    
-    def _generate_description(self) -> str:
-        """Generate realistic ticket description"""
-        return f"Customer reported issue with detailed description. Severity level: {random.choice(['low', 'medium', 'high'])}."
-    
-    def step(self, action: TriageAction) -> Tuple[Observation, Reward, bool, Info]:
+    def step(self, action: TriageAction) -> Tuple[Dict, float, bool, Dict]:
         """
         Execute action and return (observation, reward, done, info)
         
         Args:
-            action: TriageAction object
+            action: TriageAction object with decision
         
         Returns:
             Tuple of (observation, reward, done, info)
         """
-        reward_components = {}
+        reward = 0.0
+        info = {"action": action.model_dump()}
         
-        # Find ticket
-        ticket = None
-        for t in self.tickets_queue:
-            if t.ticket_id == action.ticket_id:
-                ticket = t
+        # Find patient
+        patient = None
+        for p in self.patients:
+            if p.id == action.patient_id:
+                patient = p
                 break
         
-        if ticket is None:
-            reward_val = -1.0
-            reward_components["invalid_ticket"] = -1.0
-        else:
-            # Remove from queue
-            self.tickets_queue.remove(ticket)
-            
-            # Calculate reward
-            reward_val, components = self._calculate_reward(ticket, action)
-            reward_components.update(components)
-            
-            # Update metrics
-            self.total_triaged += 1
-            if action.priority == ticket.priority:
-                self.correctly_prioritized += 1
-            if action.category == ticket.category:
-                self.correctly_categorized += 1
-            
-            # Assign to agent
-            if action.assign_to_agent:
-                self.agents[action.assign_to_agent] += 1
-            
-            # Mark as assigned
-            ticket.status = TicketStatus.ASSIGNED
-            ticket.assigned_to = action.assign_to_agent
-            self.resolved_tickets.append(ticket)
+        if patient is None:
+            reward = -0.5
+            info["error"] = "Patient not found"
+            self.current_step += 1
+            return self._get_observation(), reward, False, info
         
+        # Process action
+        if action.type == TriageActionType.ASSIGN_ESI:
+            reward += self._assign_esi(patient, action.value)
+        
+        elif action.type == TriageActionType.ORDER_TEST:
+            reward += self._order_test(patient, action.tool)
+        
+        elif action.type == TriageActionType.MONITOR:
+            reward += self._monitor_patient(patient, action.minutes)
+        
+        elif action.type == TriageActionType.QUERY:
+            reward += self._nurse_query(patient, action.text)
+        
+        elif action.type == TriageActionType.DISCHARGE:
+            reward += self._discharge_patient(patient)
+        
+        # Update environment
         self.current_step += 1
-        self.total_reward += reward_val
+        self.episode_reward += reward
+        self.action_history.append(action)
+        self.reward_history.append(reward)
         
-        # Check episode end
-        if self.current_step >= self.max_steps or len(self.tickets_queue) == 0:
+        # Update patient states (temporal dynamics)
+        self._update_patient_states()
+        
+        # Check termination conditions
+        all_triaged = all(p.status in ["discharged", "triaged"] for p in self.patients)
+        patient_expired = any(p.expired for p in self.patients)
+        
+        if patient_expired:
+            self.done = True
+            reward = -2.0  # Critical miss penalty
+        elif all_triaged:
+            self.done = True
+        elif self.current_step >= self.max_steps:
             self.done = True
         
-        # Return OpenEnv format
-        obs = self._get_observation()
-        reward = Reward(value=reward_val, components=reward_components)
-        info = Info(
-            step=self.current_step,
-            done=self.done,
-            episode_length=self.current_step,
-            total_reward=self.total_reward,
-            success=self._is_successful(),
-            metrics=self._get_metrics()
-        )
-        
-        return obs, reward, self.done, info
+        return self._get_observation(), reward, self.done, info
     
-    def _calculate_reward(self, ticket: Ticket, action: TriageAction) -> Tuple[float, Dict]:
-        """Calculate reward for action"""
-        components = {}
-        total = 0.0
+    def _update_patient_states(self):
+        """Update patient states based on temporal dynamics"""
+        for patient in self.patients:
+            # Check if patient should deteriorate (Task 3)
+            if patient.deterioration_threshold is not None:
+                if self.current_step >= patient.deterioration_threshold:
+                    if patient.state == PatientState.STABLE:
+                        patient.state = PatientState.DECOMPENSATING
+                        patient.deterioration_detected_at = None
+                    
+                    # Deteriorate vitals aggressively
+                    patient.update_vitals(deteriorate=True)
+                    
+                    # Check for critical state
+                    if patient.check_critical():
+                        # Critical patient should be escalated
+                        if patient.status not in ["triaged", "discharged"]:
+                            # Not properly triaged - high risk
+                            if patient.triage_level and patient.triage_level > 2:
+                                # Under-triaged critical patient
+                                patient.expired = True
+    
+    def _assign_esi(self, patient: Patient, esi_level: int) -> float:
+        """Assign ESI triage level"""
+        if patient.triage_level is not None:
+            return -0.2  # Already triaged
         
-        # Priority classification accuracy (+1.0 for correct, -0.5 for wrong)
-        if action.priority == ticket.priority:
-            components["priority_correct"] = 1.0
-            total += 1.0
+        patient.triage_level = esi_level
+        patient.status = "triaged"
+        
+        # Calculate reward based on accuracy
+        correct_level = self._get_true_esi(patient)
+        
+        if esi_level == correct_level:
+            return 1.0
+        elif abs(esi_level - correct_level) == 1:
+            return 0.5  # Close call
         else:
-            components["priority_incorrect"] = -0.5
-            total -= 0.5
-        
-        # Category classification accuracy (+0.8 for correct, -0.3 for wrong)
-        if action.category == ticket.category:
-            components["category_correct"] = 0.8
-            total += 0.8
+            return -1.0 if esi_level > correct_level else -0.5  # Under/over triage
+    
+    def _get_true_esi(self, patient: Patient) -> int:
+        """Get true ESI level for patient"""
+        if patient.state == PatientState.CRITICAL:
+            return 2
+        elif patient.state == PatientState.DECOMPENSATING:
+            return 3
+        elif patient.true_condition in ["appendicitis", "sepsis", "pneumonia"]:
+            return 3
+        elif patient.true_condition in ["stable_angina", "gastroenteritis"]:
+            return 4
         else:
-            components["category_incorrect"] = -0.3
-            total -= 0.3
+            return 5
+    
+    def _order_test(self, patient: Patient, test_type: str) -> float:
+        """Order a diagnostic test"""
+        if self.resource_units <= 0:
+            return -0.1  # No resources
         
-        # Load balancing - even distribution bonus (+0.3)
-        workload_std = np.std(list(self.agents.values()))
-        if workload_std < 2.0:
-            components["load_balanced"] = 0.3
-            total += 0.3
+        self.resource_units -= 1
+        patient.tests_ordered.append(test_type)
+        
+        # Appropriate testing gets small reward
+        if test_type in ["blood_culture", "ct_scan", "ekg"]:
+            return 0.1
         else:
-            components["load_imbalanced"] = -0.2
-            total -= 0.2
-        
-        # Sentiment handling (+0.4 for negative sentiment)
-        if ticket.sentiment_score < -0.3:
-            components["negative_sentiment_handled"] = 0.4
-            total += 0.4
-        
-        return total, components
+            return -0.2  # Over-testing
     
-    def _is_successful(self) -> bool:
-        """Determine if episode was successful"""
-        if self.total_triaged == 0:
-            return False
-        accuracy = (self.correctly_prioritized + self.correctly_categorized) / (2 * self.total_triaged)
-        return accuracy > 0.7
+    def _monitor_patient(self, patient: Patient, minutes: int) -> float:
+        """Monitor patient for specified duration"""
+        if minutes is None or minutes < 1:
+            return 0.0
+        
+        reward = 0.0
+        
+        # Simulate time passing
+        for _ in range(minutes):
+            patient.update_vitals(deteriorate=(patient.state == PatientState.DECOMPENSATING))
+            
+            # Check for deterioration
+            if patient.check_critical():
+                patient.expired = True
+                return -2.0  # Patient expired during monitoring
+        
+        # Early detection of deterioration = reward
+        if patient.state == PatientState.DECOMPENSATING:
+            reward += 0.3  # Caught early deterioration
+        
+        return reward
     
-    def _get_metrics(self) -> Dict[str, Any]:
-        """Get episode metrics"""
-        if self.total_triaged == 0:
-            return {
-                "priority_accuracy": 0.0,
-                "category_accuracy": 0.0,
-                "load_balance_std": 0.0
-            }
+    def _nurse_query(self, patient: Patient, query: str) -> float:
+        """Query nurse for additional information"""
+        if query is None or len(query) < 3:
+            return -0.1  # Spam query
         
-        return {
-            "priority_accuracy": self.correctly_prioritized / self.total_triaged,
-            "category_accuracy": self.correctly_categorized / self.total_triaged,
-            "load_balance_std": float(np.std(list(self.agents.values()))),
-            "tickets_triaged": self.total_triaged
-        }
+        return 0.1  # Smart information gathering
     
-    def _get_observation(self) -> Observation:
-        """Get current observation"""
-        return Observation(
-            current_step=self.current_step,
-            queue_size=len(self.tickets_queue),
-            tickets=self.tickets_queue[:5],  # Show top 5
-            agent_workload=self.agents.copy(),
-            time_remaining_seconds=max(0, (self.max_steps - self.current_step) * 10),
-            metrics={
-                "priority_accuracy": self.correctly_prioritized / max(1, self.total_triaged),
-                "category_accuracy": self.correctly_categorized / max(1, self.total_triaged),
-                "load_balance_std": float(np.std(list(self.agents.values()))),
-                "tickets_resolved": len(self.resolved_tickets)
-            }
-        )
-
-
-# ============================================================================
-# Task Graders
-# ============================================================================
-
-class TaskGrader:
-    """Evaluates agent performance on a task"""
+    def _discharge_patient(self, patient: Patient) -> float:
+        """Discharge patient"""
+        patient.status = "discharged"
+        
+        if patient.state == PatientState.CRITICAL:
+            return -2.0  # Discharged critical patient
+        
+        return 0.5  # Appropriate discharge
     
-    def __init__(self, task_level: int):
-        self.task_level = task_level
+    def render(self, mode='human'):
+        """Render current state"""
+        print(f"\n=== Step {self.current_step} ===")
+        print(f"Resource Units: {self.resource_units}")
+        print(f"Episode Reward: {self.episode_reward:.2f}")
+        print("\nPatients:")
+        for p in self.patients:
+            print(f"  {p.id}: {p.status} | ESI: {p.triage_level} | HR: {p.vitals['hr']} | BP: {p.vitals['bp']}")
     
-    def grade(self, env: SupportTriageEnv, episode_reward: float, metrics: Dict) -> float:
-        """
-        Grade agent performance (0.0 to 1.0)
-        
-        Args:
-            env: Environment after episode
-            episode_reward: Total reward from episode
-            metrics: Episode metrics
-        
-        Returns:
-            Score 0.0-1.0
-        """
-        priority_acc = metrics.get("priority_accuracy", 0.0)
-        category_acc = metrics.get("category_accuracy", 0.0)
-        load_std = metrics.get("load_balance_std", 0.0)
-        tickets_triaged = metrics.get("tickets_triaged", 0)
-        
-        # Thresholds vary by difficulty
-        thresholds = {
-            1: {"priority": 0.9, "category": 0.85, "load": 1.5},  # Easy
-            2: {"priority": 0.80, "category": 0.75, "load": 1.0},  # Medium
-            3: {"priority": 0.70, "category": 0.65, "load": 0.5}   # Hard
-        }
-        
-        thresh = thresholds.get(self.task_level, thresholds[1])
-        
-        # Component scores (each 0-1)
-        priority_score = min(1.0, priority_acc / thresh["priority"])
-        category_score = min(1.0, category_acc / thresh["category"])
-        load_score = min(1.0, 1.0 - (load_std / thresh["load"]))
-        throughput_score = min(1.0, tickets_triaged / max(1, self.task_level * 5))
-        
-        # Weighted average
-        final_score = (
-            priority_score * 0.35 +
-            category_score * 0.35 +
-            load_score * 0.20 +
-            throughput_score * 0.10
-        )
-        
-        return min(1.0, max(0.0, final_score))
+    def state(self) -> Dict:
+        """Get current environment state"""
+        return self._get_observation()
 
 
 if __name__ == "__main__":
     # Test environment
-    print("🎫 Support Ticket Triage OpenEnv\n")
+    env = MedTriageEnv(task_level=1)
+    obs = env.reset()
+    print("Initial observation:", obs)
     
-    for task_level in [1, 2, 3]:
-        print(f"\n{'='*60}")
-        print(f"Task Level {task_level}")
-        print('='*60)
-        
-        env = SupportTriageEnv(task_level=task_level, max_steps=10)
-        obs = env.reset()
-        
-        print(f"Initial queue: {obs.queue_size} tickets")
-        print(f"First ticket: {obs.tickets[0].ticket_id}")
-        
-        # Sample action
-        if obs.tickets:
-            ticket = obs.tickets[0]
-            action = TriageAction(
-                ticket_id=ticket.ticket_id,
-                priority=TicketPriority.HIGH,
-                category=TicketCategory.TECHNICAL,
-                assign_to_agent="agent_1"
-            )
-            
-            obs, reward, done, info = env.step(action)
-            print(f"Reward: {reward.value:.2f}")
-            print(f"Metrics: {info.metrics}")
+    # Sample action
+    action = TriageAction(
+        type=TriageActionType.ASSIGN_ESI,
+        patient_id="P1",
+        value=3
+    )
+    obs, reward, done, info = env.step(action)
+    print(f"Reward: {reward}, Done: {done}")
+    env.render()
