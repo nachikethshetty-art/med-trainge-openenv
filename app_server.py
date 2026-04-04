@@ -517,8 +517,16 @@ def run_episode():
         data = request.get_json() or {}
         difficulty = data.get('difficulty', 'medium')
         
+        # Map difficulty to task level (1=easy, 2=medium, 3=hard)
+        difficulty_map = {'easy': 1, 'medium': 2, 'hard': 3}
+        task_level = difficulty_map.get(difficulty, 2)
+        
+        # Create environment with task level
+        global env
+        env = MedTriageEnv(task_level=task_level)
+        
         # Reset environment
-        obs, info = env.reset(difficulty=difficulty)
+        obs = env.reset()
         
         steps = 0
         max_steps = 10
@@ -527,18 +535,21 @@ def run_episode():
         # Run episode
         while steps < max_steps:
             # Get action from agent
-            action = agent.get_triage_decision(
-                ticket_dict=obs.current_ticket.__dict__ if obs.current_ticket else {},
-                agent_workload=obs.agent_workloads
-            )
+            action = agent.decide(obs)
             
             # Step environment
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, info = env.step(action)
             
-            total_reward += reward.total_reward
+            # Extract reward value
+            if isinstance(reward, dict):
+                step_reward = reward.get('total_reward', 0)
+            else:
+                step_reward = float(reward) if reward else 0
+            
+            total_reward += step_reward
             steps += 1
             
-            if done or truncated:
+            if done:
                 break
         
         # Prepare response
