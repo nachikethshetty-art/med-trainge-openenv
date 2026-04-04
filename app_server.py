@@ -5,8 +5,13 @@ Listens on port 7860 and provides interactive web UI for testing.
 """
 
 import os
+import sys
 import json
 import traceback
+
+# Add current directory to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from flask import Flask, render_template_string, jsonify, request
 from environment.med_triage_env import MedTriageEnv
 from baseline.agent import BaselineAgent
@@ -24,7 +29,7 @@ def init_app():
     """Initialize environment and agent."""
     global env, agent
     try:
-        env = MedTriageEnv()
+        env = MedTriageEnv(task_level=1)
         
         # Get API keys from environment
         # HF Spaces doesn't allow underscores in secret names, so we accept both formats
