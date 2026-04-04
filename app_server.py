@@ -1,256 +1,579 @@
 #!/usr/bin/env python3
 """
-Flask web server for HF Spaces - listens on port 7860
-Provides API endpoints for running the OpenEnv environment
+Flask web server for Med-Triage OpenEnv on HF Spaces.
+Listens on port 7860 and provides interactive web UI for testing.
 """
 
 import os
 import json
-import sys
-from flask import Flask, jsonify, request, render_template_string
-from env import SupportTriageEnv, TriageAction, TicketPriority, TicketCategory
-from inference import TicketTriageAgent, parse_env_vars
+import traceback
+from flask import Flask, render_template_string, jsonify, request
+from environment.med_triage_env import SupportTriageEnv
+from baseline.agent import TicketTriageAgent
 
+# Initialize Flask app
 app = Flask(__name__)
+app.config['JSON_SORT_KEYS'] = False
 
-# Initialize agent (will use GROQ primary, GEMINI fallback)
-try:
-    config = parse_env_vars()
-    agent = TicketTriageAgent(config)
-    print("✅ Agent initialized successfully", file=sys.stderr)
-except ValueError as e:
-    print(f"⚠️  Agent initialization warning: {e}", file=sys.stderr)
-    print("⚠️  API keys not yet configured. Please add secrets to HF Space.", file=sys.stderr)
-    agent = None
-except Exception as e:
-    print(f"⚠️  Agent init error: {e}", file=sys.stderr)
-    agent = None
+# Initialize environment and agent
+env = None
+agent = None
+last_episode_result = None
 
+def init_app():
+    """Initialize environment and agent."""
+    global env, agent
+    try:
+        env = SupportTriageEnv()
+        
+        # Get API keys from environment
+        config = {
+            "groq_key": os.getenv("GROQ_API_KEY"),
+            "gemini_key": os.getenv("GEMINI_API_KEY"),
+        }
+        agent = TicketTriageAgent(config)
+        print("✓ Environment and agent initialized successfully")
+        return True
+    except Exception as e:
+        print(f"✗ Error initializing: {e}")
+        traceback.print_exc()
+        return False
 
-# HTML template for the web interface
+# HTML Template for web UI
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Support Ticket Triage OpenEnv</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏥 Med-Triage OpenEnv</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
-        h2 { color: #555; margin-top: 30px; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
-        button:hover { background: #0056b3; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
-        .card { border: 1px solid #ddd; padding: 15px; border-radius: 4px; }
-        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .status-box {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .status-label {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .status-value {
+            color: #666;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .tasks {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .task-btn {
+            padding: 15px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .task-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .task-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .task-easy {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .task-easy:hover:not(:disabled) {
+            background: #c3e6cb;
+        }
+        
+        .task-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .task-medium:hover:not(:disabled) {
+            background: #ffeaa7;
+        }
+        
+        .task-hard {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .task-hard:hover:not(:disabled) {
+            background: #f5c6cb;
+        }
+        
+        .results {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .results.visible {
+            display: block;
+        }
+        
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .result-value {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .loading.visible {
+            display: block;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .error.visible {
+            display: block;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 12px;
+            color: #999;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎫 Support Ticket Triage OpenEnv</h1>
-        
-        <div class="status info">
-            <strong>OpenEnv Environment:</strong> Ready for agents to interact with
+        <div class="header">
+            <h1>🏥 Med-Triage OpenEnv</h1>
+            <p>Clinical Decision-Making in Emergency Medicine</p>
         </div>
         
-        <h2>📊 Environment Status</h2>
-        <div class="grid">
-            <div class="card">
-                <h3>🟢 API Keys</h3>
-                <p id="api-status">Loading...</p>
+        <div class="status-box">
+            <div class="status-item">
+                <span class="status-label">Environment Status:</span>
+                <span class="status-value" id="env-status">
+                    <span class="status-badge badge-inactive">Loading...</span>
+                </span>
             </div>
-            <div class="card">
-                <h3>⚡ Model</h3>
-                <p id="model-status">Loading...</p>
+            <div class="status-item">
+                <span class="status-label">GROQ API:</span>
+                <span class="status-value" id="groq-status">
+                    <span class="status-badge badge-inactive">Checking...</span>
+                </span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">GEMINI API:</span>
+                <span class="status-value" id="gemini-status">
+                    <span class="status-badge badge-inactive">Checking...</span>
+                </span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Active Model:</span>
+                <span class="status-value" id="model-status">
+                    <span class="status-badge badge-info">-</span>
+                </span>
             </div>
         </div>
-
-        <h2>🚀 Quick Test</h2>
-        <button onclick="runTest(1)">Test Task 1 (Easy)</button>
-        <button onclick="runTest(2)">Test Task 2 (Medium)</button>
-        <button onclick="runTest(3)">Test Task 3 (Hard)</button>
-        <div id="test-result" style="margin-top: 20px;"></div>
-
-        <h2>📝 API Endpoints</h2>
-        <div class="card">
-            <p><code>GET /</code> - This page</p>
-            <p><code>GET /status</code> - Check environment status (JSON)</p>
-            <p><code>POST /run_episode</code> - Run an episode</p>
-            <p><code>GET /health</code> - Health check</p>
+        
+        <div class="tasks">
+            <button class="task-btn task-easy" onclick="runTask('easy')">
+                🟢 Easy Task
+            </button>
+            <button class="task-btn task-medium" onclick="runTask('medium')">
+                🟡 Medium Task
+            </button>
+            <button class="task-btn task-hard" onclick="runTask('hard')">
+                🔴 Hard Task
+            </button>
         </div>
-
-        <h2>📖 Documentation</h2>
-        <div class="card">
-            <p><strong>GitHub:</strong> <a href="https://github.com/nachikethshetty-art/med-trainge-openenv" target="_blank">View Repository</a></p>
-            <p><strong>Environment:</strong> Real-world support ticket triaging with multi-objective optimization</p>
-            <p><strong>Tasks:</strong> 3 levels (Easy, Medium, Hard)</p>
-            <p><strong>APIs:</strong> GROQ (primary) + GEMINI (fallback) - Both FREE</p>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Running episode...</p>
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="results" id="results">
+            <div id="results-content"></div>
+        </div>
+        
+        <div class="footer">
+            <p>Med-Triage OpenEnv • Powered by GROQ + GEMINI</p>
         </div>
     </div>
-
+    
     <script>
-        function updateStatus() {
-            fetch('/status')
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('api-status').innerHTML = 
-                        data.groq_available ? '✅ GROQ Active' : '⚠️ GROQ Inactive';
-                    if (data.gemini_available) {
-                        document.getElementById('api-status').innerHTML += '<br>✅ GEMINI Available (Fallback)';
-                    }
+        // Update status on page load
+        window.addEventListener('load', () => {
+            updateStatus();
+            setInterval(updateStatus, 5000); // Update every 5 seconds
+        });
+        
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                document.getElementById('env-status').innerHTML = 
+                    '<span class="status-badge badge-active">Ready</span>';
+                
+                document.getElementById('groq-status').innerHTML = 
+                    data.groq_available ? 
+                    '<span class="status-badge badge-active">✓ Active</span>' :
+                    '<span class="status-badge badge-inactive">✗ Inactive</span>';
+                
+                document.getElementById('gemini-status').innerHTML = 
+                    data.gemini_available ? 
+                    '<span class="status-badge badge-active">✓ Active</span>' :
+                    '<span class="status-badge badge-inactive">✗ Inactive</span>';
+                
+                if (data.model_used) {
                     document.getElementById('model-status').innerHTML = 
-                        '<code>' + (data.model_used || 'Not tested yet') + '</code>';
-                })
-                .catch(e => console.error(e));
-        }
-
-        function runTest(taskLevel) {
-            document.getElementById('test-result').innerHTML = '<div class="status info">Running...</div>';
-            fetch('/run_episode', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({task_level: taskLevel})
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('test-result').innerHTML = 
-                        '<div class="status success">' +
-                        '<strong>✅ Task ' + taskLevel + ' Success!</strong><br>' +
-                        'Score: ' + data.score.toFixed(4) + '<br>' +
-                        'Reward: ' + data.total_reward.toFixed(2) + '<br>' +
-                        'Model: ' + (data.model_used || 'unknown') +
-                        '</div>';
-                } else {
-                    document.getElementById('test-result').innerHTML = 
-                        '<div class="status error"><strong>❌ Test Failed</strong><br>' + (data.error || 'Unknown error') + '</div>';
+                        '<span class="status-badge badge-info">' + data.model_used.toUpperCase() + '</span>';
                 }
-            })
-            .catch(e => {
-                document.getElementById('test-result').innerHTML = 
-                    '<div class="status error"><strong>❌ Error:</strong> ' + e.message + '</div>';
-            });
+            } catch (e) {
+                console.error('Status check failed:', e);
+            }
         }
-
-        // Update on load
-        updateStatus();
-        setInterval(updateStatus, 5000);
+        
+        async function runTask(difficulty) {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const results = document.getElementById('results');
+            
+            loading.classList.add('visible');
+            error.classList.remove('visible');
+            results.classList.remove('visible');
+            
+            try {
+                const response = await fetch('/run_episode', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ difficulty: difficulty })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to run episode');
+                }
+                
+                displayResults(data);
+            } catch (err) {
+                error.textContent = 'Error: ' + err.message;
+                error.classList.add('visible');
+            } finally {
+                loading.classList.remove('visible');
+            }
+        }
+        
+        function displayResults(data) {
+            const resultsContent = document.getElementById('results-content');
+            const results = document.getElementById('results');
+            
+            let html = `
+                <div class="result-item">
+                    <div class="result-title">Episode Score</div>
+                    <div class="result-value"><span class="score">${data.total_reward.toFixed(2)}</span></div>
+                </div>
+            `;
+            
+            if (data.reward_breakdown) {
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">Reward Breakdown</div>
+                        <div class="result-value">
+                            <strong>Priority Match:</strong> ${data.reward_breakdown.priority_match_reward?.toFixed(2) || 'N/A'}<br>
+                            <strong>Category Match:</strong> ${data.reward_breakdown.category_match_reward?.toFixed(2) || 'N/A'}<br>
+                            <strong>Agent Assignment:</strong> ${data.reward_breakdown.agent_assignment_reward?.toFixed(2) || 'N/A'}<br>
+                            <strong>Queue Efficiency:</strong> ${data.reward_breakdown.queue_efficiency_reward?.toFixed(2) || 'N/A'}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.model_used) {
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">Model Used</div>
+                        <div class="result-value">${data.model_used.toUpperCase()}</div>
+                    </div>
+                `;
+            }
+            
+            if (data.steps) {
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">Steps Taken</div>
+                        <div class="result-value">${data.steps}</div>
+                    </div>
+                `;
+            }
+            
+            resultsContent.innerHTML = html;
+            results.classList.add('visible');
+        }
     </script>
 </body>
 </html>
 """
 
-
 @app.route('/')
 def index():
-    """Main page"""
+    """Serve main page."""
     return render_template_string(HTML_TEMPLATE)
-
 
 @app.route('/health')
 def health():
-    """Health check endpoint"""
+    """Health check endpoint."""
     return jsonify({
         "status": "healthy",
-        "agent_ready": agent is not None
+        "environment": "ready" if env else "not_initialized"
     })
-
 
 @app.route('/status')
 def status():
-    """Check environment and API status"""
-    try:
-        from groq import Groq
-        groq_available = os.getenv('GROQ_API_KEY') is not None
-    except:
-        groq_available = False
+    """Return status of APIs and models."""
+    groq_available = False
+    gemini_available = False
+    model_used = None
     
-    try:
-        import google.generativeai as genai
-        gemini_available = os.getenv('GEMINI_API_KEY') is not None
-    except:
-        gemini_available = False
+    if agent:
+        groq_available = hasattr(agent, 'groq_client') and agent.groq_client is not None
+        gemini_available = hasattr(agent, 'gemini_model') and agent.gemini_model is not None
+        model_used = getattr(agent, 'model_used', None)
     
     return jsonify({
+        "environment_ready": env is not None,
         "groq_available": groq_available,
         "gemini_available": gemini_available,
-        "agent_ready": agent is not None,
-        "model_used": getattr(agent, 'model_used', 'unknown') if agent else None
+        "model_used": model_used,
+        "apis_configured": groq_available or gemini_available
     })
-
 
 @app.route('/run_episode', methods=['POST'])
 def run_episode():
-    """Run a single episode"""
+    """Run a complete episode and return results."""
+    global last_episode_result
+    
+    if not env or not agent:
+        return jsonify({
+            "error": "Environment or agent not initialized"
+        }), 500
+    
     try:
         data = request.get_json() or {}
-        task_level = data.get('task_level', 1)
+        difficulty = data.get('difficulty', 'medium')
         
-        if not (1 <= task_level <= 3):
-            return jsonify({
-                "success": False,
-                "error": "task_level must be 1, 2, or 3"
-            }), 400
+        # Reset environment
+        obs, info = env.reset(difficulty=difficulty)
         
-        if not agent:
-            return jsonify({
-                "success": False,
-                "error": "Agent not initialized. Check API keys."
-            }), 500
-        
-        # Create environment
-        env = SupportTriageEnv(task_level=task_level, max_steps=50)
+        steps = 0
+        max_steps = 10
+        total_reward = 0
         
         # Run episode
-        obs = env.reset()
-        total_reward = 0.0
-        steps = 0
-        
-        while steps < env.max_steps and obs.tickets:
-            ticket = obs.tickets[0]
-            ticket_dict = ticket.model_dump()
+        while steps < max_steps:
+            # Get action from agent
+            action = agent.get_triage_decision(
+                ticket_dict=obs.current_ticket.__dict__ if obs.current_ticket else {},
+                agent_workload=obs.agent_workloads
+            )
             
-            try:
-                action = agent.get_triage_decision(ticket_dict, obs.agent_workload)
-                obs, reward, done, info = env.step(action)
-                total_reward += reward.value
-                steps += 1
-                
-                if done:
-                    break
-            except Exception as e:
-                return jsonify({
-                    "success": False,
-                    "error": f"Step error: {str(e)}"
-                }), 500
+            # Step environment
+            obs, reward, done, truncated, info = env.step(action)
+            
+            total_reward += reward.total_reward
+            steps += 1
+            
+            if done or truncated:
+                break
         
-        # Grade performance
-        from env import TaskGrader
-        grader = TaskGrader(task_level)
-        score = grader.grade(env, total_reward, info.metrics)
-        
-        return jsonify({
-            "success": info.success,
-            "task_level": task_level,
-            "score": float(score),
-            "total_reward": float(total_reward),
+        # Prepare response
+        result = {
+            "total_reward": total_reward,
             "steps": steps,
+            "difficulty": difficulty,
             "model_used": getattr(agent, 'model_used', 'unknown')
-        })
-    
+        }
+        
+        # Add reward breakdown if available
+        if hasattr(reward, 'components'):
+            result["reward_breakdown"] = {
+                "priority_match_reward": reward.components.get('priority_match', 0),
+                "category_match_reward": reward.components.get('category_match', 0),
+                "agent_assignment_reward": reward.components.get('agent_assignment', 0),
+                "queue_efficiency_reward": reward.components.get('queue_efficiency', 0),
+            }
+        
+        last_episode_result = result
+        return jsonify(result)
+        
     except Exception as e:
+        print(f"Error running episode: {e}")
+        traceback.print_exc()
         return jsonify({
-            "success": False,
             "error": str(e)
         }), 500
 
+@app.route('/results')
+def get_results():
+    """Get last episode results."""
+    if last_episode_result:
+        return jsonify(last_episode_result)
+    return jsonify({"error": "No results available"}), 404
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 7860))
-    print(f"\n🚀 Starting server on port {port}...", file=sys.stderr)
-    print(f"📌 Open http://localhost:{port}", file=sys.stderr)
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print("Initializing Med-Triage OpenEnv...")
+    if init_app():
+        print("Starting Flask server on 0.0.0.0:7860...")
+        app.run(host='0.0.0.0', port=7860, debug=False)
+    else:
+        print("Failed to initialize app")
+        exit(1)
