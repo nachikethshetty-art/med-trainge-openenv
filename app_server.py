@@ -27,9 +27,10 @@ def init_app():
         env = SupportTriageEnv()
         
         # Get API keys from environment
+        # HF Spaces doesn't allow underscores in secret names, so we accept both formats
         config = {
-            "groq_key": os.getenv("GROQ_API_KEY"),
-            "gemini_key": os.getenv("GEMINI_API_KEY"),
+            "groq_key": os.getenv("GROQ") or os.getenv("GROQ_API_KEY"),
+            "gemini_key": os.getenv("GEMINI") or os.getenv("GEMINI_API_KEY"),
         }
         agent = TicketTriageAgent(config)
         print("✓ Environment and agent initialized successfully")
