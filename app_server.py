@@ -510,7 +510,7 @@ def status():
 @app.route('/run_episode', methods=['POST'])
 def run_episode():
     """Run a complete episode and return results."""
-    global last_episode_result
+    global env, agent, last_episode_result
     
     if not env or not agent:
         return jsonify({
@@ -526,7 +526,6 @@ def run_episode():
         task_level = difficulty_map.get(difficulty, 2)
         
         # Create environment with task level
-        global env
         env = MedTriageEnv(task_level=task_level)
         
         # Reset environment
