@@ -540,26 +540,12 @@ def reset():
         env = MedTriageEnv(task_level=task_level)
         obs = env.reset()
         
-        # Convert observation to JSON-serializable format
-        observation_data = {
-            "patients": [
-                {
-                    "id": p.id,
-                    "vitals": p.vitals,
-                    "symptoms": p.symptoms,
-                    "urgency": p.urgency,
-                    "state": str(p.state)
-                } for p in obs.get("patients", [])
-            ] if isinstance(obs, dict) and "patients" in obs else [],
-            "resource_units_remaining": obs.get("resource_units_remaining", 0) if isinstance(obs, dict) else 0,
-            "time_elapsed": obs.get("time_elapsed", 0) if isinstance(obs, dict) else 0,
-            "step": obs.get("step", 0) if isinstance(obs, dict) else 0
-        }
-        
+        # obs is already a dict with patients as list of dicts (from get_observation())
+        # So we can return it directly
         return jsonify({
             "status": "reset",
             "task_level": task_level,
-            "observation": observation_data,
+            "observation": obs,
             "message": f"Environment reset for task level {task_level}"
         }), 200
         
@@ -609,24 +595,9 @@ def step():
         
         obs, reward, done, info = env.step(action)
         
-        # Convert observation to JSON-serializable format
-        observation_data = {
-            "patients": [
-                {
-                    "id": p.id,
-                    "vitals": p.vitals,
-                    "symptoms": p.symptoms,
-                    "urgency": p.urgency,
-                    "state": str(p.state)
-                } for p in obs.get("patients", [])
-            ] if isinstance(obs, dict) and "patients" in obs else [],
-            "resource_units_remaining": obs.get("resource_units_remaining", 0) if isinstance(obs, dict) else 0,
-            "time_elapsed": obs.get("time_elapsed", 0) if isinstance(obs, dict) else 0,
-            "step": obs.get("step", 0) if isinstance(obs, dict) else 0
-        }
-        
+        # Return observation directly - already properly formatted by env.step()
         return jsonify({
-            "observation": observation_data,
+            "observation": obs,  # obs is already JSON-serializable dict
             "reward": float(reward) if reward is not None else 0.0,
             "done": bool(done),
             "info": info if info else {}
