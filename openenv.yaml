@@ -17,7 +17,7 @@ endpoints:
 
 # Environment Configuration
 environment:
-  class_name: SupportTriageEnv
+  class_name: MedTriageEnv
   module: environment.med_triage_env
   
   observation_space:
