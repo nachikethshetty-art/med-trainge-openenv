@@ -507,6 +507,60 @@ def status():
         "apis_configured": groq_available or gemini_available
     })
 
+@app.route('/reset', methods=['POST'])
+def reset():
+    """OpenEnv Reset endpoint - Initialize a new episode."""
+    global env, agent, last_episode_result
+    
+    if not env or not agent:
+        return jsonify({
+            "error": "Environment or agent not initialized"
+        }), 500
+    
+    try:
+        # Get task_level from request (default to 1)
+        data = request.get_json() or {}
+        task_level = data.get("task_level", 1)
+        
+        # Validate task_level
+        if task_level not in [1, 2, 3]:
+            task_level = 1
+        
+        # Reset environment with new task level
+        env = MedTriageEnv(task_level=task_level)
+        obs = env.reset()
+        
+        # Convert observation to JSON-serializable format
+        observation_data = {
+            "patients": [
+                {
+                    "id": p.id,
+                    "vitals": p.vitals,
+                    "symptoms": p.symptoms,
+                    "urgency": p.urgency,
+                    "state": str(p.state)
+                } for p in obs.get("patients", [])
+            ] if isinstance(obs, dict) and "patients" in obs else [],
+            "resource_units_remaining": obs.get("resource_units_remaining", 0) if isinstance(obs, dict) else 0,
+            "time_elapsed": obs.get("time_elapsed", 0) if isinstance(obs, dict) else 0,
+            "step": obs.get("step", 0) if isinstance(obs, dict) else 0
+        }
+        
+        return jsonify({
+            "status": "reset",
+            "task_level": task_level,
+            "observation": observation_data,
+            "message": f"Environment reset for task level {task_level}"
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in reset: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "error": str(e),
+            "message": "Failed to reset environment"
+        }), 500
+
 @app.route('/run_episode', methods=['POST'])
 def run_episode():
     """Run a complete episode and return results."""
