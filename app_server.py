@@ -507,7 +507,7 @@ def status():
         "apis_configured": groq_available or gemini_available
     })
 
-@app.route('/reset', methods=['POST'])
+@app.route('/reset', methods=['POST', 'GET'])
 def reset():
     """OpenEnv Reset endpoint - Initialize a new episode."""
     global env, agent, last_episode_result
@@ -518,9 +518,19 @@ def reset():
         }), 500
     
     try:
-        # Get task_level from request (default to 1)
-        data = request.get_json() or {}
-        task_level = data.get("task_level", 1)
+        # Get task_level from request (handle both JSON and form data)
+        task_level = 1
+        
+        # Try to get from JSON body first
+        if request.is_json:
+            data = request.get_json(force=True, silent=True) or {}
+            task_level = data.get("task_level", 1)
+        # Try to get from form data
+        elif request.form:
+            task_level = int(request.form.get("task_level", 1))
+        # Try to get from query parameters
+        else:
+            task_level = int(request.args.get("task_level", 1))
         
         # Validate task_level
         if task_level not in [1, 2, 3]:
@@ -559,6 +569,75 @@ def reset():
         return jsonify({
             "error": str(e),
             "message": "Failed to reset environment"
+        }), 500
+
+@app.route('/step', methods=['POST', 'GET'])
+def step():
+    """OpenEnv Step endpoint - Execute an action and get next observation."""
+    global env, agent, last_episode_result
+    
+    if not env or not agent:
+        return jsonify({
+            "error": "Environment or agent not initialized"
+        }), 500
+    
+    try:
+        # Get action from request
+        action_type = "ASSIGN_ESI"
+        action_value = 2
+        
+        if request.is_json:
+            data = request.get_json(force=True, silent=True) or {}
+            action_type = data.get("action_type", "ASSIGN_ESI")
+            action_value = data.get("action_value", 2)
+        elif request.form:
+            action_type = request.form.get("action_type", "ASSIGN_ESI")
+            action_value = int(request.form.get("action_value", 2))
+        else:
+            action_type = request.args.get("action_type", "ASSIGN_ESI")
+            action_value = int(request.args.get("action_value", 2))
+        
+        # Execute step
+        from environment.med_triage_env import TriageAction, TriageActionType
+        
+        action = TriageAction(
+            type=TriageActionType[action_type],
+            patient_id="patient_0",
+            value=action_value,
+            minutes=5
+        )
+        
+        obs, reward, done, info = env.step(action)
+        
+        # Convert observation to JSON-serializable format
+        observation_data = {
+            "patients": [
+                {
+                    "id": p.id,
+                    "vitals": p.vitals,
+                    "symptoms": p.symptoms,
+                    "urgency": p.urgency,
+                    "state": str(p.state)
+                } for p in obs.get("patients", [])
+            ] if isinstance(obs, dict) and "patients" in obs else [],
+            "resource_units_remaining": obs.get("resource_units_remaining", 0) if isinstance(obs, dict) else 0,
+            "time_elapsed": obs.get("time_elapsed", 0) if isinstance(obs, dict) else 0,
+            "step": obs.get("step", 0) if isinstance(obs, dict) else 0
+        }
+        
+        return jsonify({
+            "observation": observation_data,
+            "reward": float(reward) if reward is not None else 0.0,
+            "done": bool(done),
+            "info": info if info else {}
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in step: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "error": str(e),
+            "message": "Failed to execute step"
         }), 500
 
 @app.route('/run_episode', methods=['POST'])
