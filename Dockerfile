@@ -1,44 +1,39 @@
 FROM python:3.11-slim
 
-# Set environment variables
+# Disable pip version check to speed up installation
 ENV PYTHONUNBUFFERED=1 \
-    PORT=7860 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app:$PYTHONPATH
+    PYTHONPATH=/app:$PYTHONPATH \
+    PORT=7860 \
+    PIP_NO_INPUT=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
 
-# Install system dependencies with retry
-RUN apt-get update --allow-unauthenticated && \
-    apt-get install -y --no-install-recommends \
-    git \
-    curl && \
+WORKDIR /app
+
+# Install minimal dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create non-root user (HF Spaces requirement)
-RUN useradd -m -u 1000 user
+# Copy and install requirements
+COPY requirements.txt .
+RUN pip install -U pip setuptools && \
+    pip install -r requirements.txt
 
-# Set working directory
-WORKDIR /app
+# Copy application
+COPY . .
 
-# Copy requirements first for better layer caching
-COPY --chown=user:user requirements.txt pyproject.toml* ./
-
-# Install Python dependencies with pip cache disabled
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY --chown=user:user . .
-
-# Switch to non-root user
+# Create non-root user
+RUN useradd -m -u 1000 user && \
+    chown -R user:user /app
 USER user
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
-# Expose port
 EXPOSE 7860
 
-# Start the Flask application
 CMD ["python", "app_server.py"]
