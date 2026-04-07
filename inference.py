@@ -208,6 +208,9 @@ def main():
             success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 5.0)
             success_rate = success_count / len(episodes_data)
             
+            # Clamp success rate to strictly between 0 and 1 (exclusive bounds)
+            success_rate = min(max(success_rate, 0.001), 0.999)
+            
             results[task_name] = {
                 "episodes": len(episodes_data),
                 "total_reward": total_reward,
