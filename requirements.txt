@@ -6,6 +6,9 @@
 numpy>=1.26.0
 pydantic>=2.6.0
 
+# LLM & AI - OpenAI
+openai>=1.3.0
+
 # LLM & AI - Free APIs
 groq>=0.4.0
 google-generativeai>=0.3.0

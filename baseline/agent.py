@@ -35,6 +35,14 @@ class BaselineAgent:
         self.use_llm = use_llm
         self.llm_model = llm_model
         self.decision_history = []
+        
+        # Initialize LLM client if needed
+        if self.use_llm and OpenAI:
+            self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:7860")
+            self.api_key = os.getenv("API_KEY", "")
+            self.llm_client = OpenAI(api_key=self.api_key, base_url=self.api_base_url)
+        else:
+            self.llm_client = None
     
     def decide(self, observation: Dict) -> TriageAction:
         """
