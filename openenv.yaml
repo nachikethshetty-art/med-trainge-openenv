@@ -1,9 +1,9 @@
 ---
-name: Support Ticket Triage OpenEnv
+name: Med-Triage OpenEnv
 version: 1.0.0
 description: |
   OpenEnv environment for evaluating AI agents on continuous, time-sensitive 
-  clinical decision-making in emergency medicine support ticket triage.
+  clinical decision-making in emergency medicine triage.
 
 author: Med-Triage Team
 license: MIT
