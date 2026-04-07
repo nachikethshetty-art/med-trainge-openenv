@@ -114,8 +114,11 @@ def run_episode(env: MedTriageEnv, agent: BaselineAgent, max_steps: int = 20) ->
             }), file=sys.stderr)
             break
     
+    # Normalize episode reward to (0.001, 0.999) range
+    normalized_reward = min(max(total_reward, 0.001), 0.999)
+    
     return {
-        "total_reward": total_reward,
+        "total_reward": normalized_reward,
         "steps": step_count,
         "avg_reward_per_step": total_reward / step_count if step_count > 0 else 0,
         "actions": actions_taken
