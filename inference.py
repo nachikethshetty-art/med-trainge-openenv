@@ -201,6 +201,9 @@ def main():
             total_reward = sum(ep["total_reward"] for ep in episodes_data)
             avg_reward = total_reward / len(episodes_data)
             
+            # Clamp average reward to strictly between 0 and 1 (exclusive bounds)
+            avg_reward = min(max(avg_reward, 0.001), 0.999)
+            
             # Estimate success rate (reward > 5.0 = success)
             success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 5.0)
             success_rate = success_count / len(episodes_data)
