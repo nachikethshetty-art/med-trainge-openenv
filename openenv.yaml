@@ -1,0 +1,136 @@
+---
+name: Med-Triage OpenEnv
+version: 1.0.0
+description: |
+  OpenEnv environment for evaluating AI agents on continuous, time-sensitive 
+  clinical decision-making in emergency medicine support ticket triage.
+
+author: Med-Triage Team
+license: MIT
+
+# Environment Endpoints
+endpoints:
+  - reset: "Initialize environment for a task"
+  - step: "Execute an action and get reward"
+  - state: "Get current environment state"
+  - render: "Render human-readable view (optional)"
+
+# Environment Configuration
+environment:
+  class_name: MedTriageEnv
+  module: environment.med_triage_env
+  
+  observation_space:
+    type: object
+    properties:
+      current_ticket:
+        type: object
+        description: Current ticket in queue
+      queue_length: 
+        type: integer
+        description: Number of tickets waiting
+      agent_workloads:
+        type: object
+        description: Current workload per agent
+      metrics:
+        type: object
+        description: Performance metrics
+        
+  action_space:
+    type: object
+    properties:
+      ticket_id:
+        type: string
+      priority:
+        type: string
+        enum: ["low", "medium", "high"]
+      category:
+        type: string
+        enum: ["billing", "technical", "general"]
+      agent_id:
+        type: string
+        
+  reward_spec:
+    type: object
+    components:
+      - priority_match: "Reward for correct priority assignment"
+      - category_match: "Reward for correct category assignment"
+      - agent_assignment: "Reward for optimal agent selection"
+      - queue_efficiency: "Reward for queue management"
+
+# Tasks Configuration
+tasks:
+  - name: easy_triage
+    difficulty: easy
+    description: Triage 5 tickets with clear patterns
+    max_episodes: 100
+    metrics:
+      min_reward: 0.7
+      target_reward: 0.85
+      
+  - name: medium_triage
+    difficulty: medium
+    description: Triage 10 tickets with mixed patterns
+    max_episodes: 50
+    metrics:
+      min_reward: 0.5
+      target_reward: 0.75
+      
+  - name: hard_triage
+    difficulty: hard
+    description: Triage 20 tickets with complex patterns
+    max_episodes: 20
+    metrics:
+      min_reward: 0.3
+      target_reward: 0.65
+
+# Baseline Agent
+baseline:
+  class_name: TicketTriageAgent
+  module: baseline.agent
+  config:
+    model: mixtral-8x7b-32768
+    temperature: 0.7
+    max_tokens: 500
+
+# Evaluation Metrics
+evaluation:
+  metrics:
+    - episode_return: "Cumulative reward per episode"
+    - success_rate: "Percentage of correctly triaged tickets"
+    - average_priority_accuracy: "Accuracy of priority prediction"
+    - average_category_accuracy: "Accuracy of category prediction"
+    - average_agent_match: "Accuracy of agent assignment"
+    
+# API Configuration
+apis:
+  primary:
+    name: GROQ
+    model: mixtral-8x7b-32768
+    endpoint: https://api.groq.com/openai/v1/chat/completions
+    free_tier: true
+    rate_limit: "30 requests/minute"
+    
+  fallback:
+    name: GEMINI
+    model: gemini-pro
+    endpoint: https://generativelanguage.googleapis.com/v1beta/models
+    free_tier: true
+    rate_limit: "60 requests/minute"
+
+# Web UI Configuration
+web_ui:
+  port: 7860
+  framework: Flask
+  features:
+    - interactive_testing
+    - real_time_status
+    - episode_visualization
+    - metrics_dashboard
+
+# Documentation
+docs:
+  github: https://github.com/nachikethshetty-art/med-trainge-openenv
+  readme: README.md
+  api_setup: API_KEYS_SETUP.md
+  deployment: HF_SPACES_DEPLOYMENT.md
