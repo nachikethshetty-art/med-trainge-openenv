@@ -296,7 +296,7 @@ test_reproducibility
 
 ## 🌐 Live Demo
 
-**Try it now!** → https://huggingface.co/spaces/nachikethshetty/med-trainge-openenv
+**Try it now!** → https://huggingface.co/spaces/nachikethshetty/med-trainge
 
 - ✅ Interactive web UI
 - ✅ Real-time results
@@ -394,7 +394,7 @@ MIT License - See repository for details
 - **Issues**: GitHub Issues
 - **Documentation**: See docs/
 - **API Setup**: See API_KEYS_SETUP.md
-- **Live Demo**: https://huggingface.co/spaces/nachikethshetty/med-trainge-openenv
+- **Live Demo**: https://huggingface.co/spaces/nachikethshetty/med-trainge
 
 ---
 
