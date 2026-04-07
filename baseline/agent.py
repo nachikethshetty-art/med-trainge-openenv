@@ -36,6 +36,9 @@ class BaselineAgent:
         self.api_base_url = os.getenv("API_BASE_URL")
         self.api_key = os.getenv("API_KEY")
         
+        print(f"[DEBUG] API_BASE_URL from env: {self.api_base_url}", flush=True)
+        print(f"[DEBUG] API_KEY from env: {'***' if self.api_key else 'NOT SET'}", flush=True)
+        
         # Initialize OpenAI client with provided API proxy
         if self.api_base_url and self.api_key and OpenAI:
             try:
@@ -51,6 +54,12 @@ class BaselineAgent:
                 self.client = None
         else:
             print("⚠ API_BASE_URL or API_KEY not set, using heuristic mode", flush=True)
+            if not self.api_base_url:
+                print("  - API_BASE_URL is missing", flush=True)
+            if not self.api_key:
+                print("  - API_KEY is missing", flush=True)
+            if not OpenAI:
+                print("  - OpenAI library not available", flush=True)
             self.use_llm = False
             self.client = None
     
@@ -65,9 +74,11 @@ class BaselineAgent:
             TriageAction based on LLM decision
         """
         if not self.use_llm or not self.client:
+            print(f"[DEBUG] LLM not available (use_llm={self.use_llm}, client={'present' if self.client else 'None'})", flush=True)
             return None
         
         try:
+            print(f"[DEBUG] Calling LLM API for patient: {patient.get('id')}", flush=True)
             # Prepare patient context for LLM
             vitals = patient.get("vitals", {})
             symptoms = patient.get("symptoms", [])
@@ -91,6 +102,7 @@ Respond with ONLY a single number 1-5:
 5 = Non-Urgent (minimal acuity)"""
 
             # Call LLM API through proxy - this will use the provided API_BASE_URL and API_KEY
+            print(f"[DEBUG] Making API request to {self.api_base_url}", flush=True)
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
@@ -101,24 +113,30 @@ Respond with ONLY a single number 1-5:
                 max_tokens=10,
                 timeout=10
             )
+            print(f"[DEBUG] API response received successfully", flush=True)
             
             # Parse ESI level from response
             response_text = response.choices[0].message.content.strip()
+            print(f"[DEBUG] LLM response: {response_text}", flush=True)
             try:
                 esi_level = int(response_text)
                 if 1 <= esi_level <= 5:
+                    print(f"[DEBUG] Using LLM ESI level: {esi_level}", flush=True)
                     return TriageAction(
                         type=TriageActionType.ASSIGN_ESI,
                         patient_id=patient.get("id", "unknown"),
                         value=esi_level
                     )
             except (ValueError, AttributeError):
+                print(f"[DEBUG] Failed to parse ESI level from response: {response_text}", flush=True)
                 pass
             
             return None
             
         except Exception as e:
-            print(f"LLM API error: {e}", flush=True)
+            print(f"[ERROR] LLM API error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             return None
     
     def decide(self, observation: Dict) -> Optional[TriageAction]:
@@ -144,13 +162,20 @@ Respond with ONLY a single number 1-5:
         
         patient = untriaged[0]  # Process first patient
         patient_id = patient.get("id", "unknown")
+        print(f"[DEBUG] Processing patient: {patient_id}, use_llm={self.use_llm}", flush=True)
         
         # Try LLM decision first (uses API_BASE_URL and API_KEY)
         if self.use_llm:
+            print(f"[DEBUG] Attempting LLM decision for {patient_id}", flush=True)
             llm_action = self.get_llm_decision(patient)
             if llm_action:
                 self.decision_history.append(llm_action)
+                print(f"[DEBUG] Using LLM action: ESI={llm_action.value}", flush=True)
                 return llm_action
+            else:
+                print(f"[DEBUG] LLM decision returned None, falling back to heuristics", flush=True)
+        else:
+            print(f"[DEBUG] LLM not enabled, using heuristics", flush=True)
         
         # Fallback to heuristic-based decision if LLM unavailable
         vitals = patient.get("vitals", {})
@@ -180,6 +205,7 @@ Respond with ONLY a single number 1-5:
             value=esi_level
         )
         
+        print(f"[DEBUG] Using heuristic action: ESI={esi_level}", flush=True)
         self.decision_history.append(action)
         return action
     
