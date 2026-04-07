@@ -144,6 +144,9 @@ def main():
             total_reward = sum(ep["total_reward"] for ep in episodes_data)
             avg_reward = total_reward / len(episodes_data)
             
+            # Clamp score to (0, 1) - strictly between, not equal to bounds
+            avg_reward = min(max(avg_reward, 0.001), 0.999)
+            
             # Estimate success rate (reward > 5.0 = success)
             success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 5.0)
             success_rate = success_count / len(episodes_data)
@@ -169,13 +172,13 @@ def main():
                 steps=total_episode_steps
             )
         else:
-            # Emit [END] block even on failure
+            # Emit [END] block even on failure (clamp to valid range)
             log_end(
                 task_name="Med-Triage",
                 task_level=task_name,
                 total_reward=0,
                 episodes=0,
-                avg_reward=0,
+                avg_reward=0.001,  # Use minimum valid score
                 success_rate=0,
                 steps=0
             )
