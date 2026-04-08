@@ -8,9 +8,21 @@ pinned: false
 ---
 
 # 🏥 Med-Triage OpenEnv
-## AI-Powered Support Ticket Triage with Real-time Performance Optimization
+## AI-Powered Medical Triage with Real-time Emergency Response Optimization
 
-> **Hackathon Project**: Production-ready OpenEnv environment for evaluating advanced AI agents on temporal reasoning and multi-objective optimization in emergency response scenarios.
+> **Production-ready OpenEnv environment**: A comprehensive medical triage simulation for evaluating AI agents on clinical decision-making and emergency medicine resource allocation.
+
+### Environment Description & Motivation
+
+**Med-Triage OpenEnv** simulates a realistic **Emergency Medicine** triage scenario where an AI agent must make rapid clinical decisions under resource constraints. The environment implements the real-world Emergency Severity Index (ESI) triage protocol, teaching agents to:
+
+- Assess patient severity from clinical presentations
+- Allocate limited medical resources efficiently  
+- Balance urgency with fairness across patient cohorts
+- Make decisions within time constraints typical of Emergency Medicine
+- Handle temporal dynamics (patients can deteriorate over time)
+
+This is **not a game** - it's a simulation of actual emergency department triage workflows used in hospitals worldwide.
 
 ---
 
