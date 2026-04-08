@@ -32,7 +32,7 @@ env = None
 agent = None
 episodes_history = []
 
-# Demo episodes for initial display
+# Demo episodes for initial display (April 8, 2026 - Force rebuild)
 DEMO_EPISODES = [
     {"id": 1, "task_level": 1, "score": 0.9234, "steps": 12, "timestamp": "2026-04-08 10:23:45"},
     {"id": 2, "task_level": 1, "score": 0.8765, "steps": 15, "timestamp": "2026-04-08 10:24:02"},
