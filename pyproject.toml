@@ -25,6 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
+server = "server.app:main"
 med-trainge = "server.app:main"
 "med-trainge-openenv" = "server.app:main"
 
