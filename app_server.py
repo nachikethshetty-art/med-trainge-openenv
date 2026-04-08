@@ -408,6 +408,19 @@ def inference():
         }), 500
 
 
+def main():
+    """Entry point for console script."""
+    print(f"\n{'='*80}")
+    print("🏥 Med-Triage OpenEnv - Flask Server")
+    print(f"{'='*80}")
+    print(f"API Base: {API_BASE_URL}")
+    print(f"Model: {MODEL_NAME}")
+    print(f"Port: {PORT}")
+    print(f"{'='*80}\n")
+    
+    app.run(host="0.0.0.0", port=PORT, debug=False)
+
+
 if __name__ == "__main__":
     print(f"\n{'='*80}")
     print("🏥 Med-Triage OpenEnv - Flask Server")
