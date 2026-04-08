@@ -1,86 +1,94 @@
 #!/usr/bin/env python3
 """
-Baseline Inference Script for Med-Triage OpenEnv Hackathon
-Demonstrates agent evaluation across 3 task levels with structured logging
+Inference Script for Med-Triage OpenEnv
+=====================================
+MANDATORY REQUIREMENTS:
+- Environment variables: API_BASE_URL, MODEL_NAME, HF_TOKEN (optional)
+- Uses OpenAI Client for all LLM calls
+- Output format: [START], [STEP], [END] markers as specified
+- All rewards/scores normalized to [0.0, 1.0]
+- Each task returns score in [0, 1]
+
+STDOUT FORMAT:
+[START] task=<task_name> env=med-triage model=<model_name>
+[STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+[END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
 """
 
 import os
-import json
 import sys
-import time
-from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, List, Optional, Tuple
 
-# Environment variables
+# Environment variables (MANDATORY)
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "groq-mixtral-8x7b")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Import environment and agent
 from environment.med_triage_env import MedTriageEnv, TriageAction, TriageActionType
 from baseline.agent import BaselineAgent
 
 
-def log_start(task_name: str, task_level: str):
-    """Emit [START] log"""
-    timestamp = datetime.now().isoformat()
-    log = {
-        "event": "START",
-        "timestamp": timestamp,
-        "task": task_name,
-        "task_level": task_level,
-        "model": MODEL_NAME,
-        "api_base": API_BASE_URL
-    }
-    print(json.dumps(log))
-    sys.stdout.flush()
+def log_start(task: str, env: str, model: str) -> None:
+    """Emit [START] log - SPEC COMPLIANT"""
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(step_num: int, action_type: str, reward: float, done: bool):
-    """Emit [STEP] log"""
-    timestamp = datetime.now().isoformat()
-    log = {
-        "event": "STEP",
-        "timestamp": timestamp,
-        "step": step_num,
-        "action_type": action_type,
-        "reward": round(float(reward), 4),
-        "done": done
-    }
-    print(json.dumps(log))
-    sys.stdout.flush()
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    """Emit [STEP] log - SPEC COMPLIANT
+    
+    Fields:
+    - step: integer step number
+    - action: action string representation
+    - reward: reward value (2 decimal places)
+    - done: lowercase boolean (true|false)
+    - error: error message or null
+    """
+    error_val = error if error else "null"
+    done_str = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_str} error={error_val}",
+        flush=True
+    )
 
 
-def log_end(task_name: str, task_level: str, total_reward: float, episodes: int, 
-            avg_reward: float, success_rate: float, status: str):
-    """Emit [END] log"""
-    timestamp = datetime.now().isoformat()
-    log = {
-        "event": "END",
-        "timestamp": timestamp,
-        "task": task_name,
-        "task_level": task_level,
-        "total_reward": round(float(total_reward), 4),
-        "episodes_run": episodes,
-        "average_reward": round(float(avg_reward), 4),
-        "success_rate": round(float(success_rate), 4),
-        "status": status,
-        "model": MODEL_NAME
-    }
-    print(json.dumps(log))
-    sys.stdout.flush()
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    """Emit [END] log - SPEC COMPLIANT
+    
+    Fields:
+    - success: lowercase boolean (true|false)
+    - steps: total steps taken
+    - score: final score [0, 1]
+    - rewards: comma-separated rewards (2 decimal places)
+    """
+    success_str = str(success).lower()
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}",
+        flush=True
+    )
 
 
-def run_episode(env: MedTriageEnv, agent: BaselineAgent, max_steps: int = 20) -> Dict:
-    """Run a single episode and return metrics"""
+def run_episode(env: MedTriageEnv, agent: BaselineAgent, max_steps: int = 20) -> Tuple[float, int, List[float]]:
+    """Run a single episode and return (score, steps, rewards)
+    
+    Args:
+        env: Environment instance
+        agent: Agent instance
+        max_steps: Maximum steps per episode
+        
+    Returns:
+        Tuple of (normalized_score, total_steps, list_of_rewards)
+    """
     obs = env.reset()
     
     total_reward = 0.0
     step_count = 0
-    actions_taken = []
+    rewards_list = []
     
     for step in range(max_steps):
-        # Get action from agent
         try:
+            # Get action from agent
             action = agent.decide(obs)
             
             if action is None:
@@ -95,172 +103,93 @@ def run_episode(env: MedTriageEnv, agent: BaselineAgent, max_steps: int = 20) ->
             else:
                 step_reward = float(reward) if reward else 0.0
             
+            # Clamp step reward to [0, 1]
+            step_reward = min(max(step_reward, 0.0), 1.0)
+            
             total_reward += step_reward
             step_count += 1
-            actions_taken.append(str(action.type))
+            rewards_list.append(step_reward)
             
             # Log step
-            log_step(step + 1, str(action.type), step_reward, done)
+            log_step(step + 1, str(action.type), step_reward, done, error=None)
             
             if done:
                 break
                 
         except Exception as e:
-            print(json.dumps({
-                "event": "ERROR",
-                "timestamp": datetime.now().isoformat(),
-                "step": step + 1,
-                "error": str(e)
-            }), file=sys.stderr)
+            error_msg = str(e)
+            log_step(step + 1, "error", 0.0, True, error=error_msg)
             break
     
-    # Normalize episode reward to (0.001, 0.999) range
-    normalized_reward = min(max(total_reward, 0.001), 0.999)
+    # Normalize score to [0.001, 0.999] range
+    score = min(max(total_reward / max_steps if max_steps > 0 else 0, 0.001), 0.999)
     
-    return {
-        "total_reward": normalized_reward,
-        "steps": step_count,
-        "avg_reward_per_step": total_reward / step_count if step_count > 0 else 0,
-        "actions": actions_taken
-    }
+    return score, step_count, rewards_list
 
 
 def main():
-    """Main evaluation script"""
+    """Main evaluation script - runs all 3 task levels with spec-compliant output"""
     
-    print("=" * 80)
-    print("🏥 Med-Triage OpenEnv - Baseline Agent Evaluation")
-    print("=" * 80)
-    print()
-    
-    # Map task levels to names
+    # Task level mapping
     task_levels = {
         1: "easy",
         2: "medium", 
         3: "hard"
     }
     
-    # Run evaluation on all 3 task levels
-    results = {}
-    overall_scores = []
+    all_scores = []
+    all_rewards = []
     
+    # Run evaluation on all 3 task levels (MANDATORY)
     for task_level in [1, 2, 3]:
         task_name = task_levels[task_level]
-        print(f"\n{'='*80}")
-        print(f"📊 Evaluating: {task_name.upper()} (Task Level {task_level})")
-        print(f"{'='*80}\n")
         
-        log_start("Med-Triage", task_name)
+        # Emit START marker
+        log_start(task="med-triage", env="med-triage-v1", model=MODEL_NAME)
         
-        # Initialize environment for this task level
         try:
+            # Initialize environment for this task level
             env = MedTriageEnv(task_level=task_level, max_steps=50)
-        except Exception as e:
-            print(json.dumps({
-                "event": "ERROR",
-                "message": f"Failed to initialize environment: {e}"
-            }))
-            continue
-        
-        # Initialize agent
-        try:
+            
+            # Initialize agent
             config = {
                 "groq_key": os.getenv("GROQ"),
                 "gemini_key": os.getenv("GEMINI"),
             }
             agent = BaselineAgent(config)
+            
+            # Run single episode per task level
+            score, steps_taken, rewards = run_episode(env, agent, max_steps=20)
+            
+            all_scores.append(score)
+            all_rewards.extend(rewards)
+            
+            # Determine success (score > 0.5 = success)
+            success = score >= 0.5
+            
+            # Emit END marker - SPEC COMPLIANT
+            log_end(
+                success=success,
+                steps=steps_taken,
+                score=score,
+                rewards=rewards
+            )
+            
         except Exception as e:
-            print(json.dumps({
-                "event": "ERROR",
-                "message": f"Failed to initialize agent: {e}"
-            }))
-            continue
-        
-        # Run multiple episodes for this task level
-        if task_level == 1:
-            num_episodes = 3
-        elif task_level == 2:
-            num_episodes = 2
-        elif task_level == 3:
-            num_episodes = 1
-        else:
-            num_episodes = 1
-        episodes_data = []
-        
-        for episode in range(num_episodes):
-            print(f"Episode {episode + 1}/{num_episodes}...", end=" ", flush=True)
-            
-            try:
-                episode_result = run_episode(env, agent, max_steps=20)
-                episodes_data.append(episode_result)
-                print(f"✓ Reward: {episode_result['total_reward']:.4f}")
-                
-            except Exception as e:
-                print(f"✗ Error: {e}")
-                continue
-        
-        # Calculate metrics for this task level
-        if episodes_data:
-            total_reward = sum(ep["total_reward"] for ep in episodes_data)
-            avg_reward = total_reward / len(episodes_data)
-            
-            # Clamp average reward to strictly between 0 and 1 (exclusive bounds)
-            avg_reward = min(max(avg_reward, 0.001), 0.999)
-            
-            # Estimate success rate (reward > 5.0 = success)
-            success_count = sum(1 for ep in episodes_data if ep["total_reward"] > 5.0)
-            success_rate = success_count / len(episodes_data)
-            
-            # Clamp success rate to strictly between 0 and 1 (exclusive bounds)
-            success_rate = min(max(success_rate, 0.001), 0.999)
-            
-            results[task_name] = {
-                "episodes": len(episodes_data),
-                "total_reward": total_reward,
-                "average_reward": avg_reward,
-                "success_rate": success_rate,
-                "episodes_data": episodes_data
-            }
-            
-            overall_scores.append(avg_reward)
-            
+            print(f"Error in task level {task_level}: {e}", file=sys.stderr)
             log_end(
-                task_name="Med-Triage",
-                task_level=task_name,
-                total_reward=total_reward,
-                episodes=len(episodes_data),
-                avg_reward=avg_reward,
-                success_rate=success_rate,
-                status="completed"
-            )
-        else:
-            log_end(
-                task_name="Med-Triage",
-                task_level=task_name,
-                total_reward=0,
-                episodes=0,
-                avg_reward=0,
-                success_rate=0,
-                status="failed"
+                success=False,
+                steps=0,
+                score=0.0,
+                rewards=[]
             )
     
-    # Print summary
-    print(f"\n{'='*80}")
-    print("📈 SUMMARY RESULTS")
-    print(f"{'='*80}\n")
-    
-    for task_name, data in results.items():
-        print(f"{task_name.upper():10} | Episodes: {data['episodes']:2} | "
-              f"Avg Reward: {data['average_reward']:.4f} | "
-              f"Success Rate: {data['success_rate']:.1%}")
-    
-    if overall_scores:
-        avg_score = sum(overall_scores) / len(overall_scores)
-        print(f"\n{'OVERALL':10} | Average Score: {avg_score:.4f}")
-    
-    print(f"\n{'='*80}")
-    print("✅ Evaluation Complete")
-    print(f"{'='*80}\n")
+    # Final status
+    if all_scores:
+        final_score = sum(all_scores) / len(all_scores)
+        print(f"\n{'='*80}", file=sys.stderr)
+        print(f"✅ Evaluation Complete - Final Score: {final_score:.2f}", file=sys.stderr)
+        print(f"{'='*80}\n", file=sys.stderr)
 
 
 if __name__ == "__main__":
