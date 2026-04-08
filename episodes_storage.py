@@ -7,7 +7,28 @@ import json
 import os
 from datetime import datetime
 
-EPISODES_FILE = "/tmp/episodes_history.json"
+# Use multiple possible locations - try each in order
+# HF Spaces usually has /home/user or /tmp available
+possible_dirs = [
+    os.path.expanduser("~/.cache/episodes"),  # User home cache
+    "/home/user/episodes",                     # HF Spaces home directory
+    "/tmp/episodes",                           # Temporary directory
+]
+
+EPISODES_FILE = None
+for dir_path in possible_dirs:
+    try:
+        os.makedirs(dir_path, exist_ok=True)
+        EPISODES_FILE = os.path.join(dir_path, "episodes_history.json")
+        print(f"[EPISODES] Using storage location: {EPISODES_FILE}")
+        break
+    except Exception as e:
+        print(f"[EPISODES] Cannot use {dir_path}: {e}")
+
+if EPISODES_FILE is None:
+    # Fallback to /tmp
+    EPISODES_FILE = "/tmp/episodes_history.json"
+    print(f"[EPISODES] Using fallback location: {EPISODES_FILE}")
 
 # Demo episodes for initial display
 DEMO_EPISODES = [
@@ -40,7 +61,8 @@ def load_episodes():
 def save_episodes(episodes):
     """Save episodes to JSON file."""
     try:
-        os.makedirs(os.path.dirname(EPISODES_FILE), exist_ok=True)
+        dir_path = os.path.dirname(EPISODES_FILE)
+        os.makedirs(dir_path, exist_ok=True)
         with open(EPISODES_FILE, 'w') as f:
             json.dump(episodes, f, indent=2)
         print(f"[EPISODES] Saved {len(episodes)} episodes to {EPISODES_FILE}")
