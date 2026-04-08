@@ -204,6 +204,243 @@ python app_server.py
 # Visit: http://localhost:7860
 ```
 
+---
+
+## 🧪 Manual Episode Evaluation Guide
+
+### For Evaluators: Step-by-Step Instructions
+
+#### Step 1: Start the Flask Server
+
+Open **Terminal 1** and run:
+
+```bash
+cd /Users/amshumathshetty/Desktop/med-triage-openenv
+source venv/bin/activate
+python3 app_server.py
+```
+
+You should see:
+```
+================================================================================
+🏥 Med-Triage OpenEnv - Flask Server
+================================================================================
+API Base: http://localhost:7860
+Model: groq-mixtral-8x7b
+Port: 7860
+Loaded Episodes: 6
+================================================================================
+```
+
+✅ Server is ready when you see the above message.
+
+#### Step 2: Run the Automated Test Script (Recommended)
+
+Open **Terminal 2** and run:
+
+```bash
+cd /Users/amshumathshetty/Desktop/med-triage-openenv
+source venv/bin/activate
+python3 test_episodes_manual.py
+```
+
+This script will:
+- ✅ Verify server is running
+- ✅ Generate 6 episodes (3 EASY, 2 MEDIUM, 1 HARD)
+- ✅ Show progress for each evaluation
+- ✅ Display dashboard episode count
+- ⏱️ Each episode takes 30-60 seconds to evaluate
+
+**Expected Output:**
+```
+================================================================================
+  Med-Triage OpenEnv - Manual Episode Evaluation Test
+================================================================================
+
+Testing Server Health
+✅ Server is running!
+   Status: healthy
+   Service: med-triage-openenv
+
+📈 Checking Dashboard Episodes
+   Episodes on Dashboard: 6
+
+================================================================================
+  2. Generating Test Episodes
+================================================================================
+
+📊 Generating EASY #1 episode (Task Level 1)...
+   ✅ SUCCESS!
+   Score: 0.9234
+   Steps: 12
+
+📊 Generating EASY #2 episode (Task Level 2)...
+   ✅ SUCCESS!
+   Score: 0.8765
+   Steps: 15
+
+... (continues for all 6 episodes)
+
+================================================================================
+  4. Results Summary
+================================================================================
+
+✅ Test Complete!
+📱 View Dashboard: http://localhost:7860/
+```
+
+#### Step 3: View Results on Dashboard
+
+While test script is running (or after), visit:
+```
+http://localhost:7860
+```
+
+You should see:
+- 📊 **Status**: ✅ Running
+- 📊 **Episodes Evaluated**: 6 (or more)
+- 📊 **Episode History** with colored badges:
+  - 🟢 EASY (green) - 3 episodes
+  - 🟡 MEDIUM (yellow) - 2 episodes  
+  - 🔴 HARD (red) - 1 episode
+
+---
+
+### Alternative: Manual cURL Commands
+
+If you prefer manual testing, use these commands:
+
+**Generate EASY Episode:**
+```bash
+curl -X POST http://localhost:7860/inference \
+  -H "Content-Type: application/json" \
+  -d '{"task_level": 1}' \
+  -w "\nHTTP Status: %{http_code}\n"
+```
+
+**Generate MEDIUM Episode:**
+```bash
+curl -X POST http://localhost:7860/inference \
+  -H "Content-Type: application/json" \
+  -d '{"task_level": 2}' \
+  -w "\nHTTP Status: %{http_code}\n"
+```
+
+**Generate HARD Episode:**
+```bash
+curl -X POST http://localhost:7860/inference \
+  -H "Content-Type: application/json" \
+  -d '{"task_level": 3}' \
+  -w "\nHTTP Status: %{http_code}\n"
+```
+
+**Check Server Health:**
+```bash
+curl http://localhost:7860/health | python3 -m json.tool
+```
+
+**View Dashboard Episodes:**
+```bash
+curl -s http://localhost:7860/ | grep "Episodes Evaluated" -A 1
+```
+
+---
+
+### Batch Generation Script
+
+To generate multiple episodes at once, run:
+
+```bash
+#!/bin/bash
+# Generate 3 EASY episodes
+for i in {1..3}; do
+  echo "Generating EASY episode $i..."
+  curl -X POST http://localhost:7860/inference \
+    -H "Content-Type: application/json" \
+    -d '{"task_level": 1}' \
+    -s -w "\nStatus: %{http_code}\n"
+  sleep 2
+done
+
+# Generate 2 MEDIUM episodes
+for i in {1..2}; do
+  echo "Generating MEDIUM episode $i..."
+  curl -X POST http://localhost:7860/inference \
+    -H "Content-Type: application/json" \
+    -d '{"task_level": 2}' \
+    -s -w "\nStatus: %{http_code}\n"
+  sleep 2
+done
+
+# Generate 1 HARD episode
+echo "Generating HARD episode..."
+curl -X POST http://localhost:7860/inference \
+  -H "Content-Type: application/json" \
+  -d '{"task_level": 3}' \
+  -s -w "\nStatus: %{http_code}\n"
+```
+
+Save as `generate_episodes.sh` and run:
+```bash
+chmod +x generate_episodes.sh
+./generate_episodes.sh
+```
+
+---
+
+### Expected Results
+
+After running the test script or manual commands:
+
+1. **Dashboard shows "Episodes Evaluated: 6"** ✅
+2. **6 Episode cards visible** with:
+   - Episode ID (1-6)
+   - Difficulty badge (EASY/MEDIUM/HARD)
+   - Number of steps taken
+   - Score (0.001-0.999 normalized)
+   - Timestamp
+
+3. **Scores by Difficulty**:
+   - EASY: typically 0.80-0.99
+   - MEDIUM: typically 0.60-0.80
+   - HARD: typically 0.40-0.70
+
+---
+
+### Troubleshooting
+
+**Problem**: "Connection refused" error
+```
+❌ Cannot connect to http://localhost:7860
+```
+**Solution**: Start the Flask server first
+```bash
+source venv/bin/activate
+python3 app_server.py
+```
+
+**Problem**: Script hangs or times out
+```
+⏱️ Request timed out (taking longer than 30 seconds)
+```
+**Solution**: This is normal. Evaluation can take 30-60 seconds per episode. The script continues in the background.
+
+**Problem**: No episodes show on dashboard
+**Solution**: 
+1. Wait 5 seconds and refresh the page
+2. Check server logs for errors
+3. Verify episodes are saved: `cat ~/.cache/episodes/episodes_history.json`
+
+**Problem**: "Episodes Evaluated: 0" after generation
+**Solution**: Episodes are now persisted to disk. Restart the server:
+```bash
+pkill -f "python.*app_server"
+source venv/bin/activate
+python3 app_server.py
+```
+
+---
+
 ### Run Single Episode
 
 ```python
