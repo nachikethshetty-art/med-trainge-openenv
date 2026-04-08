@@ -8,6 +8,11 @@ description: |
 author: Med-Triage Team
 license: MIT
 
+# Project Scripts (Entry Points for deployment)
+project:
+  scripts:
+    server: "app_server:app"
+
 # Environment Endpoints
 endpoints:
   - reset: "Initialize environment for a task"
