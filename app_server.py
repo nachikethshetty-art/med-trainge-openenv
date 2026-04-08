@@ -253,7 +253,16 @@ def reset():
     """Reset environment endpoint (OpenEnv spec)"""
     try:
         global env
-        data = request.get_json() or {}
+        # Handle requests with or without Content-Type header
+        data = {}
+        if request.is_json:
+            data = request.get_json() or {}
+        elif request.data:
+            try:
+                data = json.loads(request.data)
+            except:
+                data = {}
+        
         task_level = data.get("task_level", 1)
         
         env = MedTriageEnv(task_level=task_level, max_steps=50)
@@ -279,7 +288,16 @@ def step():
         if env is None:
             return jsonify({"error": "Environment not initialized", "status": "error"}), 400
         
-        data = request.get_json() or {}
+        # Handle requests with or without Content-Type header
+        data = {}
+        if request.is_json:
+            data = request.get_json() or {}
+        elif request.data:
+            try:
+                data = json.loads(request.data)
+            except:
+                data = {}
+        
         action_type = data.get("action_type", "TRIAGE")
         
         action = TriageAction(
@@ -341,8 +359,16 @@ def inference():
     try:
         global env, agent, episodes_history
         
-        # Get parameters from request
-        data = request.get_json() or {}
+        # Get parameters from request - handle missing Content-Type
+        data = {}
+        if request.is_json:
+            data = request.get_json() or {}
+        elif request.data:
+            try:
+                data = json.loads(request.data)
+            except:
+                data = {}
+        
         task_level = data.get("task_level", 1)
         max_steps = data.get("max_steps", 20)
         
