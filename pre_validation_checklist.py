@@ -198,7 +198,7 @@ def main():
         '[START]': 'Start marker in logs',
         '[STEP]': 'Step marker in logs',
         '[END]': 'End marker in logs',
-        'json.dumps': 'JSON structured output'
+        'log_start': 'Log start function'
     }
     
     for pattern, desc in required_formats.items():
