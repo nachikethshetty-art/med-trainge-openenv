@@ -151,12 +151,12 @@ def main():
             # Initialize environment for this task level
             env = MedTriageEnv(task_level=task_level, max_steps=50)
             
-            # Initialize agent
-            config = {
-                "groq_key": os.getenv("GROQ"),
-                "gemini_key": os.getenv("GEMINI"),
-            }
-            agent = BaselineAgent(config)
+            # Initialize agent with LLM enabled - MUST use injected API_BASE_URL and API_KEY
+            agent = BaselineAgent(
+                use_llm=True,
+                llm_model=MODEL_NAME,
+                config={}
+            )
             
             # Run single episode per task level
             score, steps_taken, rewards = run_episode(env, agent, max_steps=20)

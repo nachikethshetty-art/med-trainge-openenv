@@ -24,23 +24,37 @@ except ImportError:
 class BaselineAgent:
     """Simple baseline agent for med-triage"""
     
-    def __init__(self, use_llm: bool = False, llm_model: str = "gpt-3.5-turbo"):
+    def __init__(self, use_llm: bool = True, llm_model: str = "gpt-3.5-turbo", config: dict = None):
         """
         Initialize baseline agent
         
         Args:
-            use_llm: Whether to use LLM for decision making
+            use_llm: Whether to use LLM for decision making (default True)
             llm_model: LLM model to use
+            config: Optional config dict (for compatibility)
         """
         self.use_llm = use_llm
         self.llm_model = llm_model
         self.decision_history = []
         
-        # Initialize LLM client if needed
-        if self.use_llm and OpenAI:
-            self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:7860")
-            self.api_key = os.getenv("API_KEY", "")
-            self.llm_client = OpenAI(api_key=self.api_key, base_url=self.api_base_url)
+        # Initialize LLM client - ALWAYS use the provided API_BASE_URL and API_KEY
+        if OpenAI:
+            # Get API credentials from environment (MANDATORY for LiteLLM proxy)
+            self.api_base_url = os.getenv("API_BASE_URL")
+            self.api_key = os.getenv("API_KEY")
+            
+            # Validate that proxy credentials are provided
+            if not self.api_base_url or not self.api_key:
+                raise ValueError(
+                    "Missing required environment variables: API_BASE_URL and API_KEY. "
+                    "These must be provided by the evaluation framework."
+                )
+            
+            # Initialize OpenAI client with the proxy endpoint
+            self.llm_client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.api_base_url
+            )
         else:
             self.llm_client = None
     
@@ -70,7 +84,68 @@ class BaselineAgent:
         patient = untriaged[0]  # Process first patient
         patient_id = patient["id"]
         
-        # Heuristic-based decision making
+        # Use LLM if available and enabled
+        if self.use_llm and self.llm_client:
+            return self._decide_with_llm(patient, resource_units, time_elapsed)
+        else:
+            return self._decide_with_heuristics(patient)
+    
+    def _decide_with_llm(self, patient: Dict, resource_units: int, time_elapsed: int) -> TriageAction:
+        """
+        Use LLM to make triage decision
+        Makes API call through the injected API_BASE_URL and API_KEY
+        """
+        try:
+            vitals = patient["vitals"]
+            symptoms = patient["symptoms"]
+            
+            # Prepare context for LLM
+            prompt = f"""You are an emergency medicine triage specialist. 
+Given the following patient information, assign an ESI (Emergency Severity Index) level (1-5):
+- Level 1: Immediate/Life-threatening
+- Level 2: Emergent
+- Level 3: Urgent
+- Level 4: Semi-urgent
+- Level 5: Non-urgent
+
+Patient ID: {patient['id']}
+Vitals: HR={vitals['hr']}, BP={vitals['bp']}, O2={vitals['o2']}%
+Symptoms: {', '.join(symptoms)}
+Resources available: {resource_units} units
+Time elapsed: {time_elapsed}s
+
+Respond with ONLY a single integer (1-5) representing the ESI level."""
+            
+            # Make API call through the LiteLLM proxy
+            response = self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=10
+            )
+            
+            # Parse ESI level from response
+            esi_level = int(response.choices[0].message.content.strip())
+            esi_level = max(1, min(esi_level, 5))  # Clamp to [1, 5]
+            
+            action = TriageAction(
+                type=TriageActionType.ASSIGN_ESI,
+                patient_id=patient["id"],
+                value=esi_level
+            )
+            
+            self.decision_history.append(action)
+            return action
+            
+        except Exception as e:
+            # Fall back to heuristics if LLM fails
+            print(f"LLM error: {e}, falling back to heuristics", file=sys.stderr)
+            return self._decide_with_heuristics(patient)
+    
+    def _decide_with_heuristics(self, patient: Dict) -> TriageAction:
+        """
+        Use heuristics for triage decision (fallback)
+        """
         vitals = patient["vitals"]
         symptoms = patient["symptoms"]
         
@@ -84,7 +159,7 @@ class BaselineAgent:
             # Immediately escalate
             action = TriageAction(
                 type=TriageActionType.ASSIGN_ESI,
-                patient_id=patient_id,
+                patient_id=patient["id"],
                 value=2
             )
         
@@ -92,7 +167,7 @@ class BaselineAgent:
         elif any(symptom in symptoms for symptom in ["chest pain", "difficulty breathing", "severe bleeding"]):
             action = TriageAction(
                 type=TriageActionType.ASSIGN_ESI,
-                patient_id=patient_id,
+                patient_id=patient["id"],
                 value=3
             )
         
@@ -100,7 +175,7 @@ class BaselineAgent:
         elif any(symptom in symptoms for symptom in ["abdominal pain", "fever", "dizziness"]):
             action = TriageAction(
                 type=TriageActionType.ASSIGN_ESI,
-                patient_id=patient_id,
+                patient_id=patient["id"],
                 value=4
             )
         
@@ -108,7 +183,7 @@ class BaselineAgent:
         else:
             action = TriageAction(
                 type=TriageActionType.ASSIGN_ESI,
-                patient_id=patient_id,
+                patient_id=patient["id"],
                 value=5
             )
         
