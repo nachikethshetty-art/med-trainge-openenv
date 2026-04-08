@@ -8,10 +8,9 @@ description: |
 author: Med-Triage Team
 license: MIT
 
-# Project Scripts (Entry Points for deployment)
-project:
-  scripts:
-    server: "app_server:app"
+# Project Scripts - Entry points for deployment matching pyproject.toml
+scripts:
+  server: "server.app:main"
 
 # Environment Endpoints
 endpoints:
