@@ -375,6 +375,10 @@ class MedTriageEnv(Env):
     def state(self) -> Dict:
         """Get current environment state"""
         return self._get_observation()
+    
+    def get_state(self) -> Dict:
+        """Get current environment state (alias for state())"""
+        return self.state()
 
 
 if __name__ == "__main__":
