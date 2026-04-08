@@ -45,6 +45,11 @@ DEMO_EPISODES = [
 # Initialize with demo episodes
 episodes_history = DEMO_EPISODES.copy()
 
+# Debug: Print initialization info at module load
+print(f"[INIT] App starting with {len(episodes_history)} demo episodes")
+for ep in episodes_history:
+    print(f"[INIT] Episode {ep['id']}: Level {ep['task_level']}, Score {ep['score']}")
+
 
 # HTML Dashboard Template
 DASHBOARD_HTML = """
