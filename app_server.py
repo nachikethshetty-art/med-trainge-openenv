@@ -13,10 +13,6 @@ from datetime import datetime
 # Add current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import demo episodes and storage
-from init_episodes import DEMO_EPISODES
-from episodes_storage import load_episodes, save_episodes, add_episode
-
 from flask import Flask, jsonify, request, render_template_string
 from environment.med_triage_env import MedTriageEnv, TriageAction, TriageActionType
 from baseline.agent import BaselineAgent
@@ -34,14 +30,10 @@ PORT = int(os.getenv("PORT", 7860))
 # Global state
 env = None
 agent = None
-
-# Load episodes from persistent storage (file or demo episodes)
-episodes_history = load_episodes()
+episodes_history = []
 
 # Debug: Print initialization info at module load
-print(f"[INIT] App starting with {len(episodes_history)} episodes from storage")
-for ep in episodes_history[:3]:
-    print(f"[INIT] Episode {ep['id']}: Level {ep['task_level']}, Score {ep['score']}")
+print(f"[INIT] App starting")
 
 
 # HTML Dashboard Template
@@ -390,8 +382,15 @@ def inference():
         # Normalize reward
         normalized_reward = min(max(total_reward, 0.001), 0.999)
         
-        # Track episode using persistent storage
-        episodes_history[:] = add_episode(task_level, normalized_reward, steps_taken)
+        # Track episode
+        episode_data = {
+            "id": len(episodes_history) + 1,
+            "task_level": task_level,
+            "score": normalized_reward,
+            "steps": steps_taken,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        episodes_history.append(episode_data)
         
         return jsonify({
             "task_level": task_level,
@@ -416,10 +415,6 @@ def main():
     """Entry point for console script."""
     global episodes_history
     
-    # Ensure demo episodes are loaded
-    if len(episodes_history) == 0:
-        episodes_history = DEMO_EPISODES.copy()
-    
     print(f"\n{'='*80}")
     print("🏥 Med-Triage OpenEnv - Flask Server")
     print(f"{'='*80}")
@@ -433,17 +428,12 @@ def main():
 
 
 if __name__ == "__main__":
-    # Ensure demo episodes are loaded
-    if len(episodes_history) == 0:
-        episodes_history[:] = DEMO_EPISODES.copy()
-    
     print(f"\n{'='*80}")
     print("🏥 Med-Triage OpenEnv - Flask Server")
     print(f"{'='*80}")
     print(f"API Base: {API_BASE_URL}")
     print(f"Model: {MODEL_NAME}")
     print(f"Port: {PORT}")
-    print(f"Loaded Episodes: {len(episodes_history)}")
     print(f"{'='*80}\n")
     
     app.run(host="0.0.0.0", port=PORT, debug=False)
