@@ -13,8 +13,9 @@ from datetime import datetime
 # Add current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import demo episodes first
+# Import demo episodes and storage
 from init_episodes import DEMO_EPISODES
+from episodes_storage import load_episodes, save_episodes, add_episode
 
 from flask import Flask, jsonify, request, render_template_string
 from environment.med_triage_env import MedTriageEnv, TriageAction, TriageActionType
@@ -33,14 +34,13 @@ PORT = int(os.getenv("PORT", 7860))
 # Global state
 env = None
 agent = None
-episodes_history = []
 
-# Initialize with demo episodes
-episodes_history = DEMO_EPISODES.copy()
+# Load episodes from persistent storage (file or demo episodes)
+episodes_history = load_episodes()
 
 # Debug: Print initialization info at module load
-print(f"[INIT] App starting with {len(episodes_history)} demo episodes")
-for ep in episodes_history:
+print(f"[INIT] App starting with {len(episodes_history)} episodes from storage")
+for ep in episodes_history[:3]:
     print(f"[INIT] Episode {ep['id']}: Level {ep['task_level']}, Score {ep['score']}")
 
 
@@ -390,15 +390,8 @@ def inference():
         # Normalize reward
         normalized_reward = min(max(total_reward, 0.001), 0.999)
         
-        # Track episode
-        episode_data = {
-            "id": len(episodes_history) + 1,
-            "task_level": task_level,
-            "score": normalized_reward,
-            "steps": steps_taken,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        episodes_history.append(episode_data)
+        # Track episode using persistent storage
+        episodes_history[:] = add_episode(task_level, normalized_reward, steps_taken)
         
         return jsonify({
             "task_level": task_level,
