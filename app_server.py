@@ -13,6 +13,9 @@ from datetime import datetime
 # Add current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import demo episodes first
+from init_episodes import DEMO_EPISODES
+
 from flask import Flask, jsonify, request, render_template_string
 from environment.med_triage_env import MedTriageEnv, TriageAction, TriageActionType
 from baseline.agent import BaselineAgent
@@ -31,16 +34,6 @@ PORT = int(os.getenv("PORT", 7860))
 env = None
 agent = None
 episodes_history = []
-
-# Demo episodes for initial display (April 8, 2026 - Force rebuild)
-DEMO_EPISODES = [
-    {"id": 1, "task_level": 1, "score": 0.9234, "steps": 12, "timestamp": "2026-04-08 10:23:45"},
-    {"id": 2, "task_level": 1, "score": 0.8765, "steps": 15, "timestamp": "2026-04-08 10:24:02"},
-    {"id": 3, "task_level": 1, "score": 0.8901, "steps": 13, "timestamp": "2026-04-08 10:24:18"},
-    {"id": 4, "task_level": 2, "score": 0.7123, "steps": 8, "timestamp": "2026-04-08 10:24:35"},
-    {"id": 5, "task_level": 2, "score": 0.6890, "steps": 9, "timestamp": "2026-04-08 10:24:52"},
-    {"id": 6, "task_level": 3, "score": 0.5432, "steps": 11, "timestamp": "2026-04-08 10:25:09"},
-]
 
 # Initialize with demo episodes
 episodes_history = DEMO_EPISODES.copy()
@@ -428,24 +421,36 @@ def inference():
 
 def main():
     """Entry point for console script."""
+    global episodes_history
+    
+    # Ensure demo episodes are loaded
+    if len(episodes_history) == 0:
+        episodes_history = DEMO_EPISODES.copy()
+    
     print(f"\n{'='*80}")
     print("🏥 Med-Triage OpenEnv - Flask Server")
     print(f"{'='*80}")
     print(f"API Base: {API_BASE_URL}")
     print(f"Model: {MODEL_NAME}")
     print(f"Port: {PORT}")
+    print(f"Loaded Episodes: {len(episodes_history)}")
     print(f"{'='*80}\n")
     
     app.run(host="0.0.0.0", port=PORT, debug=False)
 
 
 if __name__ == "__main__":
+    # Ensure demo episodes are loaded
+    if len(episodes_history) == 0:
+        episodes_history[:] = DEMO_EPISODES.copy()
+    
     print(f"\n{'='*80}")
     print("🏥 Med-Triage OpenEnv - Flask Server")
     print(f"{'='*80}")
     print(f"API Base: {API_BASE_URL}")
     print(f"Model: {MODEL_NAME}")
     print(f"Port: {PORT}")
+    print(f"Loaded Episodes: {len(episodes_history)}")
     print(f"{'='*80}\n")
     
     app.run(host="0.0.0.0", port=PORT, debug=False)
