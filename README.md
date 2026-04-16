@@ -1,12 +1,3 @@
----
-title: Med-Triage OpenEnv
-emoji: 🏥
-colorFrom: blue
-colorTo: green
-sdk: docker
-pinned: false
----
-
 # 🏥 Med-Triage OpenEnv
 ## AI-Powered Medical Triage with Real-time Emergency Response Optimization
 
