@@ -1000,17 +1000,4 @@ FastAPI server for remote access:
 ```bash
 python api/server.py
 # Open http://localhost:8000/docs for API documentation
-```
 
----
-
-## 🏆 Hackathon Submission
-
-**Status:** Ready for competition
-**Estimated Completion:** 48-72 hours
-**Difficulty:** Advanced
-**Judge Appeal:** 🔥🔥🔥🔥 (4/4 stars)
-
----
-
-Made with ❤️ for emergency medicine AI research
